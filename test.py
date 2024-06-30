@@ -1,17 +1,22 @@
 import torch
+import numpy as np
 from littlegrad2.engine import Tensor
 
 def my_test():
-    #a = Tensor([2, 3])
-    #b = Tensor([5, 10])
-    #c = 4
+    a = [2, 3]
+    b = [5, 10]
+    c = 4
 
-    a = -5
-    b = 3
-    c = 1
+    #a = -5
+    #b = 3
+    #c = 1
 
     aVal = Tensor(a)
     bVal = Tensor(b)
+
+    a = np.array(a).reshape((-1,1))
+    b = np.array(b).reshape((-1,1))
+
     print("a:      | Passed == ", type(aVal) == Tensor)
     print("b:      | Passed == ", type(bVal) == Tensor)
     print("a.data: | Passed == ", aVal.data == a)
@@ -52,8 +57,8 @@ def test_sanity_check():
     # forward pass went well
     assert ymg.data == ypt.data.item()
     # backward pass went well
-    #print('xmg.grad: ', xmg.grad)
-    #print('xpt.grad.item(): ', xpt.grad.item())
+    print('xmg.grad: ', xmg.grad)
+    print('xpt.grad.item(): ', xpt.grad.item())
     assert xmg.grad == xpt.grad.item()
     print('Karpathy #1: Passed == True')
 
@@ -105,3 +110,12 @@ def test_more_ops():
 my_test()
 test_sanity_check()
 test_more_ops()
+
+x = Tensor([-4.0, -4.0])
+z = 2 * x + 2 + x
+q = z.relu() + z * x
+h = (z * z).relu()
+y = h + q + q * x
+y.backprop()
+
+print(x.grad)
