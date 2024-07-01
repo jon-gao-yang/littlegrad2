@@ -7,7 +7,7 @@ class Tensor:
         self._op = op
         
         self.data = data if isinstance(data, np.ndarray) else np.array(object = data, dtype = float)
-        self.data = self.data if self.data.ndim >= 2 else self.data.reshape((-1,1))
+        self.data = self.data if self.data.ndim >= 2 else self.data.reshape((1,-1))
         self.grad = np.zeros_like(self.data)
 
     def __repr__(self):
@@ -26,8 +26,7 @@ class Tensor:
     
     def __mul__(self, other):
         other = other if type(other) == Tensor else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
-        
+        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)        
         out = Tensor(data = (self.data * other.data), children = (self, other), op = '*')
         
         def backward():
@@ -43,7 +42,7 @@ class Tensor:
         
         def backward():
             self.grad += (other.data * (self.data ** (other.data - 1))) * out.grad
-            other.grad += (self.data ** other.data) * np.log(abs(self.data)+1e-10) * out.grad
+            other.grad += (self.data ** other.data) * np.log(max(abs(self.data), 1e-10)) * out.grad
         out.backward = backward
         return out
     
@@ -72,7 +71,7 @@ class Tensor:
         
         def backward():
             other.grad += (self.data * (other.data ** (self.data - 1))) * out.grad
-            self.grad += (other.data ** self.data) * np.log(abs(other.data)+1e-10) * out.grad
+            self.grad += (other.data ** self.data) * np.log(max(abs(self.data), 1e-10)) * out.grad
         out.backward = backward
         return out
     
@@ -80,11 +79,30 @@ class Tensor:
         return self * -1
     
     def relu(self):
-        out = Tensor(data = [max(0, i) for i in self.data], children = (self,), op = 'ReLU')
+        out = Tensor(data = (self.data > 0) * self.data, children = (self,), op = 'ReLU')
 
         def backward():
             #self.grad += out.grad if self.data else 0 #negative numbers still evaluate to True for some dumb reason
             self.grad += (self.data > 0) * out.grad
+        out.backward = backward
+        return out
+    
+    def __matmul__(self, other): #almost identical to __mul__ (note .T's)
+        other = other if type(other) == Tensor else Tensor(other)
+        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
+        out = Tensor(data = (self.data @ other.data), children = (self, other), op = '@')
+        
+        def backward():
+            self.grad += out.grad @ other.data.T
+            other.grad += self.data.T @ out.grad
+        out.backward = backward
+        return out
+    
+    def transpose(self):    
+        out = Tensor(data = self.data.T, children = (self,), op = 'T')
+
+        def backward():
+            self.grad += out.grad.T
         out.backward = backward
         return out
     

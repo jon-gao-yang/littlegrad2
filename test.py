@@ -14,8 +14,8 @@ def my_test():
     aVal = Tensor(a)
     bVal = Tensor(b)
 
-    a = np.array(a).reshape((-1,1))
-    b = np.array(b).reshape((-1,1))
+    a = np.array(a).reshape((1,-1))
+    b = np.array(b).reshape((1,-1))
 
     print("a:      | Passed == ", type(aVal) == Tensor)
     print("b:      | Passed == ", type(bVal) == Tensor)
@@ -57,8 +57,8 @@ def test_sanity_check():
     # forward pass went well
     assert ymg.data == ypt.data.item()
     # backward pass went well
-    print('xmg.grad: ', xmg.grad)
-    print('xpt.grad.item(): ', xpt.grad.item())
+    #print('xmg.grad: ', xmg.grad)
+    #print('xpt.grad.item(): ', xpt.grad.item())
     assert xmg.grad == xpt.grad.item()
     print('Karpathy #1: Passed == True')
 
@@ -111,11 +111,11 @@ my_test()
 test_sanity_check()
 test_more_ops()
 
-x = Tensor([-4.0, -4.0])
-z = 2 * x + 2 + x
-q = z.relu() + z * x
-h = (z * z).relu()
-y = h + q + q * x
+import random
+random.seed(1337)
+n = Tensor([random.uniform(-1, 1), random.uniform(-1, 1)])
+x = Tensor([1, -2])
+y = n.relu() @ (x.relu().transpose())
 y.backprop()
 
 print(x.grad)
