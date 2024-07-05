@@ -8,14 +8,14 @@ class Tensor:
         
         self.data = data if isinstance(data, np.ndarray) else np.array(object = data, dtype = float)
         self.data = self.data if self.data.ndim >= 2 else self.data.reshape((1,-1))
-        self.grad = np.zeros_like(self.data)
+        self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 
     def __repr__(self):
         return f"Tensor object with data {self.data}"
     
     def __add__(self, other):
         other = other if isinstance(other, Tensor) else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
+        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
         out = Tensor(data = (self.data + other.data), children = (self, other), op = '+')
 
         def backward():
@@ -26,7 +26,7 @@ class Tensor:
     
     def __mul__(self, other):
         other = other if type(other) == Tensor else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)        
+        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params   
         out = Tensor(data = (self.data * other.data), children = (self, other), op = '*')
         
         def backward():
@@ -103,6 +103,30 @@ class Tensor:
 
         def backward():
             self.grad += out.grad.T
+        out.backward = backward
+        return out
+    
+    def flatten(self):
+        out = Tensor(data = self.data.reshape((1,-1)), children = (self,), op = 'F')
+
+        def backward():
+            self.grad += out.grad.reshape(self.grad.shape)
+        out.backward = backward
+        return out
+    
+    def exp(self):
+        out = Tensor(data = np.exp(self.data), children = (self,), op = 'exp')
+
+        def backward():
+            self.grad += np.exp(self.data) * out.grad
+        out.backward = backward
+        return out
+    
+    def log(self):
+        out = Tensor(data = np.log(self.data), children = (self,), op = 'log')
+
+        def backward():
+            self.grad += (self.data ** -1) * out.grad
         out.backward = backward
         return out
     

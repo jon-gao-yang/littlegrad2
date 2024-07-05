@@ -107,6 +107,56 @@ def test_more_ops():
     print('Karpathy #2: Passed == True')
     print()
 
+def mlp_test():
+    class LinearNet:
+        def __init__(self):
+            self.params = {
+            'w1' : Tensor(2 * np.random.random_sample((3, 4)) - 1),
+            'b1' : Tensor(np.zeros((1, 4))),
+            'w2' : Tensor(2 * np.random.random_sample((4, 4)) - 1),
+            'b2' : Tensor(np.zeros((1, 4))),
+            'w3' : Tensor(2 * np.random.random_sample((4, 1)) - 1),
+            'b3' : Tensor(np.zeros((1, 1)))
+            }
+
+        def parameters(self):
+            return self.params.values()
+        
+        def zero_grad(self):
+            for param in self.params.values():
+                param.grad *= 0
+
+        def __call__(self, x:Tensor) -> Tensor:
+            return ((x@self.params['w1']+self.params['b1']).relu()@self.params['w2']+self.params['b2']).relu()@self.params['w3']+self.params['b3']
+    
+    n = LinearNet()
+    xs = [
+    [2.0, 3.0, -1.0],
+    [3.0, -1.0, 0.5],
+    [0.5, 1.0, 1.0],
+    [1.0, 1.0, -1.0],
+    ]
+    ys = [1.0, -1.0, -1.0, 1.0] # desired targets
+
+    for k in range(100):
+
+        # forward pass
+        ypred = [n(Tensor(x)) for x in xs]
+        loss = sum((yout - ygt)**2 for ygt, yout in zip(ys, ypred))
+        
+        # backward pass
+        n.zero_grad()
+        loss.backprop()
+        
+        # update
+        for p in n.parameters():
+            p.data += -0.01 * p.grad
+        
+        print(k, loss.data)
+
+    print(ypred)
+    print()
+
 #based on a practice assignment from Andrew Ng's "Advanced Learning Algorithms" Coursera course
 def plot_kaggle_data(X, y, model, predict=False):
     m, n = X.shape
@@ -127,11 +177,8 @@ def plot_kaggle_data(X, y, model, predict=False):
         yhat = None
         # Predict using the Neural Network
         if predict:
-            #inputs = [list(map(Value, X[random_index]))] # pick random image and convert pixel ints to Value, 
-            #outputs = list(map(model, inputs))[0]        # then plug pixel Values into model for fwd pass ([0] because list(map) returns a list of lists which breaks softmax)             
-            #probs, log_softmax = softmax(outputs)
             probs, log_softmax = softmax(model(Tensor(X[random_index])))
-            yhat = np.argmax(probs)
+            yhat = np.argmax(probs.data)
         
         # Display the label above the image
         ax.set_title(f"{int(y[random_index])},{yhat}",fontsize=10)
@@ -148,24 +195,18 @@ def write_kaggle_submission(model):
                 X[digitreader.line_num-2] = [int(char) for char in row] #no labels so entire row is pixel data
     
     X = (X-np.average(X)) / np.std(X)  #data normalization
-    with open('digit-recognizer/submission.csv', newline='\n') as csvfile:
+    with open('digit-recognizer/submission.csv', newline='\n', mode = 'w') as csvfile:
         digitwriter = csv.writer(csvfile, delimiter=',')
         digitwriter.writerow(['ImageId','Label'])
         for i in range(X.shape[0]):
-            #inputs = list(map(Value, X[i]))  #Value(X[i])
-            #outputs = model(inputs)  #forward pass
-            #probs, log_softmax = softmax(outputs)  #softmax layer
             probs, log_softmax = softmax(model(Tensor(X[i])))
-            digitwriter.writerow([i+1, np.argmax(probs)])  #take most likely digit as guess
+            digitwriter.writerow([i+1, np.argmax(probs.data)])  #take most likely digit as guess
 
-#from karpathy's micrograd_exercises.ipynb
-#subtracting by max to avoid overflow (rounding logit.exp() to inf)
-#adding 1 to prevent log(0) due to underflow
 def softmax(logits):
-  counts = [(logit-np.max(logits)+1).exp() for logit in logits.data] #DELETE .DATA?
-  #denominator = sum(counts)
-  probs = [count / sum(counts) for count in counts]
-  log_softmax = [(logit-np.max(logits)+1) - sum(counts).log() for logit in logits]
+  counts = logits.exp()
+  denominator = counts @ np.ones(shape = (counts.data.size, counts.data.size)) #2D ones matrix avoids denom broadcasting which fucks up gradient shape
+  probs = counts / denominator
+  log_softmax = logits - denominator.log()
   return probs, log_softmax
 
 #modified from karpathy's demo.ipynb
@@ -179,14 +220,17 @@ def loss(X, y, model, batch_size=None):
 
     losses, accuracy = [], []
     for (xrow, yrow) in zip(Xb, yb):
-        #inputs = list(map(Value, xrow))  #Value(xrow[i])
-        #outputs = model(inputs)  #forward pass
-        #probs, log_softmax = softmax(outputs)
-        probs, log_softmax = softmax(model(Tensor(xrow)))
-        losses.append(-sum([log_softmax[index] * int(index == yrow) for index in range(len(log_softmax))])) 
+        probs, log_softmax = softmax(model(Tensor(xrow)))        
+        losses.append(-log_softmax @ Tensor([index == yrow for index in range(log_softmax.data.size)]).transpose())
         # ^ cross entropy loss (can't just take log_softmax[yrow] or else you lose track of gradients and backward() doesn't work)
-        accuracy.append(yrow == np.argmax(probs))
-    total_loss = sum(losses) / len(losses)
+        accuracy.append(yrow == np.argmax(probs.data))
+
+    data_loss = sum(losses) * (1.0 / len(losses))
+    # L2 regularization
+    alpha = 1e-2
+    reg_loss = alpha * sum((p.flatten()@p.flatten().transpose() for p in model.parameters()))
+    total_loss = data_loss + reg_loss
+    #total_loss = sum(losses) / len(losses)
     return total_loss, sum(accuracy) / len(accuracy)
 
 def kaggle_training(epochs = 10, batch_size = None):
@@ -202,26 +246,47 @@ def kaggle_training(epochs = 10, batch_size = None):
     X = (X-np.average(X)) / np.std(X)  #data normalization
 
     # initialize a model 
-    #model = MLP(28*28, [25, 15, 10])
-    #print(model, "\n", "NUMBER OF PARAMTERS:", len(model.parameters()), "\n")
     class LinearNet:
         def __init__(self):
-            self.params = {
-            'w1' : Tensor(2 * np.random.random_sample((28*28, 25)) - 1),
-            'b1' : Tensor(np.zeros((1, 25))),
-            'w2' : Tensor(2 * np.random.random_sample((25, 15)) - 1),
-            'b2' : Tensor(np.zeros((1, 15))),
-            'w3' : Tensor(2 * np.random.random_sample((15, 10)) - 1),
-            'b3' : Tensor(np.zeros((1, 10)))
+            
+            self.params = {                
+                #'w1' : Tensor(np.random.randn(28*28, 100) * np.sqrt(2 / (28*28))), # 2 / (# of inputs from last layer)
+                #'b1' : Tensor(np.zeros((1, 100))),
+                #'w2' : Tensor(np.random.randn(100, 25) * np.sqrt(2 / 100)), # 2 / (# of inputs from last layer)
+                #'b2' : Tensor(np.zeros((1, 25))),
+                #'w3' : Tensor(np.random.randn(25, 15) * np.sqrt(2 / 25)), # 2 / (# of inputs from last layer)
+                #'b3' : Tensor(np.zeros((1, 15))),
+                #'w4' : Tensor(np.random.randn(15, 10) * np.sqrt(2 / 15)), # 2 / (# of inputs from last layer)
+                #'b4' : Tensor(np.zeros((1, 10)))
+
+                'w1' : Tensor(np.random.randn(28*28, 400) * np.sqrt(2 / (28*28))), # 2 / (# of inputs from last layer)
+                'b1' : Tensor(np.zeros((1, 400))),
+                'w2' : Tensor(np.random.randn(400, 100) * np.sqrt(2 / 400)), # 2 / (# of inputs from last layer)
+                'b2' : Tensor(np.zeros((1, 100))),
+                'w3' : Tensor(np.random.randn(100, 25) * np.sqrt(2 / 100)), # 2 / (# of inputs from last layer)
+                'b3' : Tensor(np.zeros((1, 25))),
+                'w4' : Tensor(np.random.randn(25, 15) * np.sqrt(2 / 25)), # 2 / (# of inputs from last layer)
+                'b4' : Tensor(np.zeros((1, 15))),
+                'w5' : Tensor(np.random.randn(15, 10) * np.sqrt(2 / 15)), # 2 / (# of inputs from last layer)
+                'b5' : Tensor(np.zeros((1, 10)))
             }
 
         def parameters(self):
             return self.params.values()
+        
+        def zero_grad(self):
+            for param in self.params.values():
+                param.grad *= 0
 
         def __call__(self, x:Tensor) -> Tensor:
-            return ((x@self.params['w1']+self.params['b1']).relu()@self.params['w2']+self.params['b2']).relu()@self.params['w3']+self.params['b3']
+            l1 = ((x @ self.params['w1']) + self.params['b1']).relu()
+            l2 = ((l1 @ self.params['w2']) + self.params['b2']).relu()
+            l3 = ((l2 @ self.params['w3']) + self.params['b3']).relu()
+            l4 = ((l3 @ self.params['w4']) + self.params['b4']).relu()
+            return (l4 @ self.params['w5']) + self.params['b5']
     
     model = LinearNet()
+    learning_rate, beta1, beta2, epsilon = 0.0009, 0.9, 0.999, 1e-8
 
     #index_list = [batch_size*3]
     #index_list = [64, 128, 128] # TODO: CHANGE THIS
@@ -235,14 +300,20 @@ def kaggle_training(epochs = 10, batch_size = None):
             total_loss, acc = loss(X[:index], y[:index], model, batch_size = batch_size)
 
             # backward
-            #model.zero_grad()
+            model.zero_grad()
             total_loss.backprop()
             
             # update (sgd)
             #learning_rate = 0.1 - 0.0999*k/epochs
-            learning_rate = 0.01
+            #learning_rate = 0.001
+            #for p in model.parameters():
+            #    p.data -= learning_rate * p.grad
             for p in model.parameters():
-                p.data -= learning_rate * p.grad
+                p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
+                p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
+                v_dp_corrected = p.v / (1 - (beta1**(k+1)))
+                s_dp_corrected = p.s / (1 - (beta2**(k+1)))
+                p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon)
             
             if k % 1 == 0:
                 print(f"step {k} loss {total_loss.data}, accuracy {acc*100}%")
@@ -253,14 +324,15 @@ def kaggle_training(epochs = 10, batch_size = None):
 
     print('TRAINING COMPLETE')
     plot_kaggle_data(X, y, model, predict = True)
-    #print('BEGINNING TEST SET INFERENCE')
-    #write_kaggle_submission(model)
-    #print('TEST SET INFERENCE COMPLETE')
+    print('BEGINNING TEST SET INFERENCE')
+    write_kaggle_submission(model)
+    print('TEST SET INFERENCE COMPLETE')
 
 #############################################################################################
 
 #my_test()
 #test_sanity_check()
 #test_more_ops()
+#mlp_test()
 
-kaggle_training(epochs = 12, batch_size = 32)
+kaggle_training(epochs = 1000, batch_size = 100)
