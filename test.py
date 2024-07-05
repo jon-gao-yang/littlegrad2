@@ -286,7 +286,7 @@ def kaggle_training(epochs = 10, batch_size = None):
             return (l4 @ self.params['w5']) + self.params['b5']
     
     model = LinearNet()
-    learning_rate, beta1, beta2, epsilon = 0.0009, 0.9, 0.999, 1e-8
+    learning_rate, beta1, beta2, epsilon = 0.0009, 0.9, 0.999, 1e-8 #NOTE: cost will not converge if learning rate is too high
 
     #index_list = [batch_size*3]
     #index_list = [64, 128, 128] # TODO: CHANGE THIS
