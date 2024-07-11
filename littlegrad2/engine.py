@@ -50,7 +50,7 @@ class Tensor:
         return self + (-other)
     
     def __truediv__(self, other):
-        return self * (other**-1)
+        return self * (other**-1.0)
     
     def __radd__(self, other): # runs if other + self didn't work
         return self + other
@@ -87,9 +87,8 @@ class Tensor:
         out.backward = backward
         return out
     
-    def __matmul__(self, other): #almost identical to __mul__ (note .T's)
+    def __matmul__(self, other): #almost identical to __mul__
         other = other if type(other) == Tensor else Tensor(other)
-        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
         out = Tensor(data = (self.data @ other.data), children = (self, other), op = '@')
         
         def backward():
@@ -98,6 +97,34 @@ class Tensor:
         out.backward = backward
         return out
     
+    def dot(self, other):
+        return self.flatten() @ other.flatten().transpose()
+
+    def conv2d(self, other): #TODO: enforce correct matrix dims
+        (nx, ny, nc) = self.data.shape
+        (fx, fy, fc, fn) = other.data.shape #TODO: ENFORCE NC == FC?
+        out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, fn)), children = (self, other), op = 'conv')
+        for x in range(out.data.shape[0]):
+            for y in range(out.data.shape[1]):
+                for f in range(out.data.shape[2]):
+                    mask = Tensor(data = np.zeros_like(out.data))
+                    mask.data[x, y, f] += 1
+                    mask *= self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
+                    out += mask
+        return out
+    
+    def maxPool2d(self, filter_size = 2, stride = 2):
+        (nx, ny, nc) = self.data.shape
+        out = Tensor(data = np.ndarray(shape = (nx//stride, ny//stride, nc)), children = (self,), op = 'pool')
+        for x in range(out.data.shape[0]):
+            for y in range(out.data.shape[1]):
+                for c in range(out.data.shape[2]):
+                    mask = Tensor(data = np.zeros_like(out.data))
+                    mask.data[x, y, c] += 1
+                    mask *= self.slice((slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size), slice(c, c+1))).max()
+                    out += mask
+        return out
+
     def transpose(self):    
         out = Tensor(data = self.data.T, children = (self,), op = 'T')
 
@@ -106,13 +133,28 @@ class Tensor:
         out.backward = backward
         return out
     
-    def flatten(self):
-        out = Tensor(data = self.data.reshape((1,-1)), children = (self,), op = 'F')
+    def reshape(self, shape):
+        out = Tensor(data = self.data.reshape(shape), children = (self,), op = 'R')
 
         def backward():
             self.grad += out.grad.reshape(self.grad.shape)
         out.backward = backward
         return out
+    
+    def flatten(self):
+        return self.reshape((1, -1))
+    
+    def slice(self, slice_object_tuple):
+        out = Tensor(data = self.data[slice_object_tuple], children = (self,), op = 'S')
+
+        def backward():
+            self.grad[slice_object_tuple] += out.grad
+        out.backward = backward
+        return out
+    
+    def max(self):
+        index = np.argmax(self.data)
+        return self.flatten().slice((slice(2), slice(index, index + 1)))
     
     def exp(self):
         out = Tensor(data = np.exp(self.data), children = (self,), op = 'exp')
