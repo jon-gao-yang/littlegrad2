@@ -99,7 +99,7 @@ class Tensor:
     
     def dot(self, other):
         return self.flatten() @ other.flatten().transpose()
-
+        
     def conv2d(self, other): #TODO: enforce correct matrix dims
         (nx, ny, nc) = self.data.shape
         (fx, fy, fc, fn) = other.data.shape #TODO: ENFORCE NC == FC?
@@ -107,22 +107,29 @@ class Tensor:
         for x in range(out.data.shape[0]):
             for y in range(out.data.shape[1]):
                 for f in range(out.data.shape[2]):
-                    mask = Tensor(data = np.zeros_like(out.data))
-                    mask.data[x, y, f] += 1
-                    mask *= self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
-                    out += mask
+                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(f, f+1)))
+                    mask += self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
         return out
     
+    def dconv2d(self, other): #TODO: enforce correct matrix dims
+        (nx, ny, nc) = self.data.shape
+        (fx, fy, fc) = other.data.shape #TODO: ENFORCE NC == FC?
+        out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, nc)), children = (self, other), op = 'dconv')
+        for x in range(out.data.shape[0]):
+            for y in range(out.data.shape[1]):
+                for c in range(out.data.shape[2]):
+                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
+                    mask += self.slice((slice(x, x+fx), slice(y, y+fy), slice(c, c+1))).dot(other.slice((slice(fx+1), slice(fy+1), slice(c, c+1))))
+        return out
+
     def maxPool2d(self, filter_size = 2, stride = 2):
         (nx, ny, nc) = self.data.shape
         out = Tensor(data = np.ndarray(shape = (nx//stride, ny//stride, nc)), children = (self,), op = 'pool')
         for x in range(out.data.shape[0]):
             for y in range(out.data.shape[1]):
                 for c in range(out.data.shape[2]):
-                    mask = Tensor(data = np.zeros_like(out.data))
-                    mask.data[x, y, c] += 1
-                    mask *= self.slice((slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size), slice(c, c+1))).max()
-                    out += mask
+                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
+                    mask += self.slice((slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size), slice(c, c+1))).max()
         return out
 
     def transpose(self):    

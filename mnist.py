@@ -7,14 +7,15 @@ import time
 
 #based on a practice assignment from Andrew Ng's "Advanced Learning Algorithms" Coursera course
 def plot_kaggle_data(X, y, model, predict=False):
-    m, n = X.shape
+    #m, n = X.shape
 
     fig, axes = plt.subplots(8,8, figsize=(5,5))
     fig.tight_layout(pad=0.13,rect=[0, 0.03, 1, 0.91]) #[left, bottom, right, top]
 
     for i,ax in enumerate(axes.flat):
         # Select random indices
-        random_index = np.random.randint(m)
+        #random_index = np.random.randint(m)
+        random_index = np.random.randint(X.shape[0])
         
         # Select rows corresponding to the random indices and reshape the image
         X_random_reshaped = X[random_index].reshape((28,28))
@@ -58,7 +59,7 @@ def softmax(logits):
   return counts / denominator, logits - denominator.log() #probs, log_softmax
 
 #modified from karpathy's demo.ipynb
-def loss(X, y, model, batch_size=None):
+def loss(X, y, model, batch_size=None, regularization=True):
 
     if batch_size is None:  #dataloader
         Xb, yb = X, y
@@ -73,12 +74,14 @@ def loss(X, y, model, batch_size=None):
         # ^ cross entropy loss (can't just take log_softmax[yrow] or else you lose track of gradients and backward() doesn't work)
         accuracy.append(yrow == np.argmax(probs.data))
 
-    # L2 regularization
-    alpha = 0.0033
-    reg_loss = alpha * sum([p.flatten()@p.flatten().transpose() for p in model.parameters()])
-    return np.average(losses) + reg_loss, np.average(accuracy) # (total_loss = data_loss + reg_loss)
+    if regularization:
+        # L2 regularization
+        alpha = 0.0001
+        reg_loss = alpha * sum([p.flatten()@p.flatten().transpose() for p in model.parameters()])
+        return np.average(losses) + reg_loss, np.average(accuracy) # (total_loss = data_loss + reg_loss)
+    return np.average(losses), np.average(accuracy)
 
-def kaggle_training(epochs = 10, batch_size = None):
+def kaggle_training(epochs = 10, batch_size = None, regularization = True):
     X = np.empty((42000, 28*28), dtype = int)
     y = np.empty(42000, dtype = int)
     with open('digit-recognizer/train.csv', newline='\n') as csvfile:
@@ -95,25 +98,21 @@ def kaggle_training(epochs = 10, batch_size = None):
     class ConvNet:
         def __init__(self):
             
-            self.params = {                
-                # 'f1' : Tensor(2 * np.random.random_sample((5, 5, 1, 6)) - 1),
-                # 'f2' : Tensor(2 * np.random.random_sample((5, 5, 6, 16)) - 1),
-                # 'w1' : Tensor(2 * np.random.random_sample((4*4*16, 64)) - 1),
-                # 'b1' : Tensor(np.zeros((1, 64))),
-                # 'w2' : Tensor(2 * np.random.random_sample((64, 16)) - 1),
-                # 'b2' : Tensor(np.zeros((1, 16))),
-                # 'w3' : Tensor(2 * np.random.random_sample((16, 10)) - 1),
-                # 'b3' : Tensor(np.zeros((1, 10))),
+            self.params = { # 2 / (# of inputs from last layer) for He initialization
+                #'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
+                #'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
 
-                'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))), # 2 / (# of inputs from last layer)
-                'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))), # 2 / (# of inputs from last layer)
-                'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))), # 2 / (# of inputs from last layer)
+                'f1d' : Tensor(np.random.randn(5, 5, 1) * np.sqrt(2 / (28*28*1))),
+                'f1p' : Tensor(np.random.randn(1, 1, 1, 6) * np.sqrt(2 / (24*24*1))),
+                'f2d' : Tensor(np.random.randn(5, 5, 6) * np.sqrt(2 / (12*12*6))),
+                'f2p' : Tensor(np.random.randn(1, 1, 6, 16) * np.sqrt(2 / (8*8*6))),
+
+                'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
                 'b1' : Tensor(np.zeros((1, 64))),
-                'w2' : Tensor(np.random.randn(64, 16) * np.sqrt(2 / (64))), # 2 / (# of inputs from last layer)
+                'w2' : Tensor(np.random.randn(64, 16) * np.sqrt(2 / (64))),
                 'b2' : Tensor(np.zeros((1, 16))),
-                'w3' : Tensor(np.random.randn(16, 10) * np.sqrt(2 / (16))), # 2 / (# of inputs from last layer)
+                'w3' : Tensor(np.random.randn(16, 10) * np.sqrt(2 / (16))),
                 'b3' : Tensor(np.zeros((1, 10))),
-
             }
 
         def parameters(self):
@@ -124,8 +123,11 @@ def kaggle_training(epochs = 10, batch_size = None):
                 param.grad.fill(0)
 
         def __call__(self, x:Tensor) -> Tensor:
-            l1 = x.conv2d(self.params['f1']).maxPool2d()
-            l2 = l1.conv2d(self.params['f2']).maxPool2d()
+            # l1 = x.conv2d(self.params['f1']).maxPool2d()
+            # l2 = l1.conv2d(self.params['f2']).maxPool2d()
+            
+            l1 = x.dconv2d(self.params['f1d']).conv2d(self.params['f1p']).maxPool2d() #depthwise separable convolution
+            l2 = l1.dconv2d(self.params['f2d']).conv2d(self.params['f2p']).maxPool2d() #depthwise separable convolution
             l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
             l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
             return (l4 @ self.params['w3']) + self.params['b3']
@@ -164,7 +166,7 @@ def kaggle_training(epochs = 10, batch_size = None):
             return (l5 @ self.params['w6']) + self.params['b6']
     
     model = ConvNet()
-    learning_rate, beta1, beta2, epsilon, weight_decay = 0.00058, 0.9, 0.999, 1e-10, 0.05 #NOTE: cost will not converge if learning rate is too high
+    learning_rate, beta1, beta2, epsilon, weight_decay = 0.000001, 0.9, 0.999, 1e-10, 0.01 #NOTE: cost will not converge if learning rate is too high
     print('TRAINING BEGINS')
     startTime = time.time()
 
@@ -172,7 +174,7 @@ def kaggle_training(epochs = 10, batch_size = None):
     for k in range(epochs):
         
         # forward
-        total_loss, acc = loss(X, y, model, batch_size = batch_size)
+        total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization)
 
         # backward
         model.zero_grad()
@@ -193,10 +195,10 @@ def kaggle_training(epochs = 10, batch_size = None):
     endTime = time.time()
     print('TRAINING COMPLETE (in', round((endTime - startTime) / 60, 3), 'min)')
     plot_kaggle_data(X, y, model, predict = True)
-    print('BEGINNING TEST SET INFERENCE')
-    write_kaggle_submission(model)
-    print('TEST SET INFERENCE COMPLETE')
+    #print('BEGINNING TEST SET INFERENCE')
+    #write_kaggle_submission(model)
+    #print('TEST SET INFERENCE COMPLETE')
 
 #############################################################################################
 
-kaggle_training(epochs = 1, batch_size = 1)
+kaggle_training(epochs = 10, batch_size = 10, regularization = False)
