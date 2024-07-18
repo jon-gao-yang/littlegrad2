@@ -99,13 +99,13 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
         def __init__(self):
             
             self.params = { # 2 / (# of inputs from last layer) for He initialization
-                #'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
-                #'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
+                'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
+                'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
 
-                'f1d' : Tensor(np.random.randn(5, 5, 1) * np.sqrt(2 / (28*28*1))),
-                'f1p' : Tensor(np.random.randn(1, 1, 1, 6) * np.sqrt(2 / (24*24*1))),
-                'f2d' : Tensor(np.random.randn(5, 5, 6) * np.sqrt(2 / (12*12*6))),
-                'f2p' : Tensor(np.random.randn(1, 1, 6, 16) * np.sqrt(2 / (8*8*6))),
+                # 'f1d' : Tensor(np.random.randn(5, 5, 1) * np.sqrt(2 / (28*28*1))),
+                # 'f1p' : Tensor(np.random.randn(1, 1, 1, 6) * np.sqrt(2 / (24*24*1))),
+                # 'f2d' : Tensor(np.random.randn(5, 5, 6) * np.sqrt(2 / (12*12*6))),
+                # 'f2p' : Tensor(np.random.randn(1, 1, 6, 16) * np.sqrt(2 / (8*8*6))),
 
                 'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
                 'b1' : Tensor(np.zeros((1, 64))),
@@ -123,11 +123,11 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
                 param.grad.fill(0)
 
         def __call__(self, x:Tensor) -> Tensor:
-            # l1 = x.conv2d(self.params['f1']).maxPool2d()
-            # l2 = l1.conv2d(self.params['f2']).maxPool2d()
+            l1 = x.conv2d(self.params['f1']).relu().maxPool2d()
+            l2 = l1.conv2d(self.params['f2']).relu().maxPool2d()
             
-            l1 = x.dconv2d(self.params['f1d']).conv2d(self.params['f1p']).maxPool2d() #depthwise separable convolution
-            l2 = l1.dconv2d(self.params['f2d']).conv2d(self.params['f2p']).maxPool2d() #depthwise separable convolution
+            #l1 = x.dconv2d(self.params['f1d']).conv2d(self.params['f1p']).relu().maxPool2d() #depthwise separable convolution
+            #l2 = l1.dconv2d(self.params['f2d']).conv2d(self.params['f2p']).relu().maxPool2d() #depthwise separable convolution
             l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
             l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
             return (l4 @ self.params['w3']) + self.params['b3']
@@ -166,7 +166,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
             return (l5 @ self.params['w6']) + self.params['b6']
     
     model = ConvNet()
-    learning_rate, beta1, beta2, epsilon, weight_decay = 0.000001, 0.9, 0.999, 1e-10, 0.01 #NOTE: cost will not converge if learning rate is too high
+    learning_rate, beta1, beta2, epsilon, weight_decay = 0.001, 0.9, 0.999, 1e-10, 0.01 #NOTE: cost will not converge if learning rate is too high
     print('TRAINING BEGINS')
     startTime = time.time()
 

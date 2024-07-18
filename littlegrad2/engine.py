@@ -100,28 +100,31 @@ class Tensor:
     def dot(self, other):
         return self.flatten() @ other.flatten().transpose()
         
-    def conv2d(self, other): #TODO: enforce correct matrix dims
-        (nx, ny, nc) = self.data.shape
-        (fx, fy, fc, fn) = other.data.shape #TODO: ENFORCE NC == FC?
-        out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, fn)), children = (self, other), op = 'conv')
-        for x in range(out.data.shape[0]):
-            for y in range(out.data.shape[1]):
-                for f in range(out.data.shape[2]):
-                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(f, f+1)))
-                    mask += self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
-        return out
+    # def conv2d(self, other): #TODO: enforce correct matrix dims
+    #     (nx, ny, nc) = self.data.shape
+    #     (fx, fy, fc, fn) = other.data.shape #TODO: ENFORCE NC == FC?
+    #     out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, fn)), children = (self, other), op = 'conv')
+    #     for x in range(out.data.shape[0]):
+    #         for y in range(out.data.shape[1]):
+    #             for f in range(out.data.shape[2]):
+    #                 mask = out.slice((slice(x, x+1), slice(y, y+1), slice(f, f+1)))
+    #                 mask += self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
+    #     return out
     
-    def dconv2d(self, other): #TODO: enforce correct matrix dims
-        (nx, ny, nc) = self.data.shape
-        (fx, fy, fc) = other.data.shape #TODO: ENFORCE NC == FC?
-        out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, nc)), children = (self, other), op = 'dconv')
-        for x in range(out.data.shape[0]):
-            for y in range(out.data.shape[1]):
-                for c in range(out.data.shape[2]):
-                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
-                    mask += self.slice((slice(x, x+fx), slice(y, y+fy), slice(c, c+1))).dot(other.slice((slice(fx+1), slice(fy+1), slice(c, c+1))))
-        return out
-
+    # def dconv2d(self, other): #TODO: enforce correct matrix dims
+    #     (nx, ny, nc) = self.data.shape
+    #     (fx, fy, fc) = other.data.shape #TODO: ENFORCE NC == FC?
+    #     out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, nc)), children = (self, other), op = 'dconv')
+    #     for x in range(out.data.shape[0]):
+    #         for y in range(out.data.shape[1]):
+    #             for c in range(out.data.shape[2]):
+    #                 mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
+    #                 mask += self.slice((slice(x, x+fx), slice(y, y+fy), slice(c, c+1))).dot(other.slice((slice(fx+1), slice(fy+1), slice(c, c+1))))
+    #     return out
+    
+    def conv(self, other): #TODO: enforce correct matrix dims? (and other's type?)
+        return (self.dft3d() * other.flip().dft3d()).idft3d() #TODO: IMPLEMENT 3D DFT
+    
     def maxPool2d(self, filter_size = 2, stride = 2):
         (nx, ny, nc) = self.data.shape
         out = Tensor(data = np.ndarray(shape = (nx//stride, ny//stride, nc)), children = (self,), op = 'pool')
@@ -163,6 +166,28 @@ class Tensor:
         index = np.argmax(self.data)
         return self.flatten().slice((slice(2), slice(index, index + 1)))
     
+    def flip(self, axis = None):
+        out = Tensor(data = np.flip(self.data, axis = axis), children = (self,), op = 'flip')
+
+        def backward():
+            self.grad += np.flip(out.grad, axis = axis)
+        out.backward = backward
+        return out
+    
+    def dft1d(self): # 1-dimensional discrete fourier transform 
+        dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
+        return self @ np.exp(-2j * np.pi * dftMatrix / len(self.data))
+    
+    def dft2d(self):
+        return self.dft1d().transpose().dft1d().transpose()
+    
+    def idft1d(self):
+        dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
+        return (self @ np.exp(2j * np.pi * dftMatrix / len(self.data))) / len(self.data)
+
+    def idft2d(self):
+        return self.idft1d().transpose().idft1d().transpose()
+
     def exp(self):
         out = Tensor(data = np.exp(self.data), children = (self,), op = 'exp')
 
