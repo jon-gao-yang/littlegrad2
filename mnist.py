@@ -123,11 +123,11 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
                 param.grad.fill(0)
 
         def __call__(self, x:Tensor) -> Tensor:
-            l1 = x.conv2d(self.params['f1']).relu().maxPool2d()
-            l2 = l1.conv2d(self.params['f2']).relu().maxPool2d()
+            l1 = x.conv(self.params['f1']).relu().maxPool2d()
+            l2 = l1.conv(self.params['f2']).relu().maxPool2d()
             
-            #l1 = x.dconv2d(self.params['f1d']).conv2d(self.params['f1p']).relu().maxPool2d() #depthwise separable convolution
-            #l2 = l1.dconv2d(self.params['f2d']).conv2d(self.params['f2p']).relu().maxPool2d() #depthwise separable convolution
+            #l1 = x.dconv(self.params['f1d']).conv(self.params['f1p']).relu().maxPool2d() #depthwise separable convolution
+            #l2 = l1.dconv(self.params['f2d']).conv(self.params['f2p']).relu().maxPool2d() #depthwise separable convolution
             l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
             l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
             return (l4 @ self.params['w3']) + self.params['b3']

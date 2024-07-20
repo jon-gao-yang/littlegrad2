@@ -123,7 +123,7 @@ class Tensor:
     #     return out
     
     def conv(self, other): #TODO: enforce correct matrix dims? (and other's type?)
-        return (self.dft3d() * other.flip().dft3d()).idft3d() #TODO: IMPLEMENT 3D DFT
+        return (self.dftNd() * other.flip().dftNd()).idftNd()
     
     def maxPool2d(self, filter_size = 2, stride = 2):
         (nx, ny, nc) = self.data.shape
@@ -143,8 +143,8 @@ class Tensor:
         out.backward = backward
         return out
     
-    def reshape(self, shape):
-        out = Tensor(data = self.data.reshape(shape), children = (self,), op = 'R')
+    def reshape(self, shape, order = 'C'):
+        out = Tensor(data = self.data.reshape(shape, order = order), children = (self,), op = 'R')
 
         def backward():
             self.grad += out.grad.reshape(self.grad.shape)
@@ -174,19 +174,31 @@ class Tensor:
         out.backward = backward
         return out
     
-    def dft1d(self): # 1-dimensional discrete fourier transform 
-        dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
-        return self @ np.exp(-2j * np.pi * dftMatrix / len(self.data))
+    # def dft1d(self): # 1-dimensional discrete fourier transform 
+    #     dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
+    #     return self @ np.exp(-2j * np.pi * dftMatrix / len(self.data))
     
-    def dft2d(self):
-        return self.dft1d().transpose().dft1d().transpose()
+    def dftNd(self):
+        out = Tensor(data = self.data)
+        for dim in self.data.shape:
+            shape = out.data.shape
+            dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
+            out = (out.reshape((-1, shape[0])) @ np.exp(-2j * np.pi * dftMatrix / shape[0])).reshape(shape)
+            np.roll(out, 1)
+        return out
     
-    def idft1d(self):
-        dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
-        return (self @ np.exp(2j * np.pi * dftMatrix / len(self.data))) / len(self.data)
-
-    def idft2d(self):
-        return self.idft1d().transpose().idft1d().transpose()
+    # def idft1d(self):
+    #     dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
+    #     return (self @ np.exp(2j * np.pi * dftMatrix / len(self.data))) / len(self.data)
+    
+    def idftNd(self):
+        out = Tensor(data = self.data)
+        for dim in self.data.shape:
+            shape = out.data.shape
+            dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
+            out = ((out.reshape((-1, shape[0])) @ np.exp(2j * np.pi * dftMatrix / shape[0])) / shape[0]).reshape(shape)
+            np.roll(out, 1)
+        return out
 
     def exp(self):
         out = Tensor(data = np.exp(self.data), children = (self,), op = 'exp')
