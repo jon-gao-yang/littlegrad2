@@ -7,6 +7,7 @@ class Tensor:
         self._op = op
         
         self.data = data if isinstance(data, np.ndarray) else np.array(object = data, dtype = float)
+        #self.data = data if isinstance(data, np.ndarray) else np.array(object = data)
         self.data = self.data if self.data.ndim >= 2 else self.data.reshape((1,-1))
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 
@@ -135,8 +136,8 @@ class Tensor:
                     mask += self.slice((slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size), slice(c, c+1))).max()
         return out
 
-    def transpose(self):    
-        out = Tensor(data = self.data.T, children = (self,), op = 'T')
+    def transpose(self, axes = None):    
+        out = Tensor(data = np.transpose(self.data, axes = axes), children = (self,), op = 'T')
 
         def backward():
             self.grad += out.grad.T
