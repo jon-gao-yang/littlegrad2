@@ -124,7 +124,11 @@ class Tensor:
     #     return out
     
     def conv(self, other): #TODO: enforce correct matrix dims? (and other's type?)
-        return (self.dftNd() * other.flip().dftNd()).idftNd()
+        #return (self.dftNd() * other.flip().dftNd()).idftNd()
+
+        otherPadded = Tensor(data = np.zeros_like(self.data, dtype = float)).sliceAdd(other.flip(), tuple([slice(dim) for dim in other.data.shape][:-1]))
+        out = (self.dftNd() * otherPadded.dftNd()).idftNd()
+        return out.slice((slice(-1-other.data.shape[0], self.data.shape[0]), slice(-1-other.data.shape[1], self.data.shape[1])))
     
     def maxPool2d(self, filter_size = 2, stride = 2):
         (nx, ny, nc) = self.data.shape
@@ -162,6 +166,17 @@ class Tensor:
             self.grad[slice_object_tuple] += out.grad
         out.backward = backward
         return out
+
+    def sliceAdd(self, other, slice_object_tuple): #TODO: check tensor dims? also is this correct?
+        other = other if type(other) == Tensor else Tensor(other)
+        out = Tensor(data = self.data, children = (self, other), op = 'S+')
+        out.data[slice_object_tuple] += other.data
+
+        def backward():
+            self.grad[slice_object_tuple] += out.grad
+            other.grad += out.grad
+        out.backward = backward
+        return out
     
     def max(self):
         index = np.argmax(self.data)
@@ -181,11 +196,12 @@ class Tensor:
     
     def dftNd(self):
         out = Tensor(data = self.data)
-        for dim in self.data.shape:
+        dims = np.arange(len(self.data.shape))
+        for dim in dims:
             shape = out.data.shape
             dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
             out = (out.reshape((-1, shape[0])) @ np.exp(-2j * np.pi * dftMatrix / shape[0])).reshape(shape)
-            np.roll(out, 1)
+            out = np.transpose(out, axes = np.roll(dims, 1)) #increment dims (0->1, 1->2, etc)
         return out
     
     # def idft1d(self):
@@ -194,11 +210,12 @@ class Tensor:
     
     def idftNd(self):
         out = Tensor(data = self.data)
-        for dim in self.data.shape:
+        dims = np.arange(len(self.data.shape))
+        for dim in dims:
             shape = out.data.shape
             dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
             out = ((out.reshape((-1, shape[0])) @ np.exp(2j * np.pi * dftMatrix / shape[0])) / shape[0]).reshape(shape)
-            np.roll(out, 1)
+            out = np.transpose(out, axes = np.roll(dims, 1)) #increment dims (0->1, 1->2, etc)
         return out
 
     def exp(self):
