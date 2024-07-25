@@ -42,9 +42,7 @@ def write_kaggle_submission(model):
         for row in digitreader:
             if digitreader.line_num != 1: #line_num starts at 1, not 0
                 X[digitreader.line_num-2] = [int(char) for char in row] #no labels so entire row is pixel data
-    
     X = (X-np.average(X)) / np.std(X)  #data normalization
-    X = X.reshape(28000, 28, 28, 1)    #reshape for ConvNet
 
     with open('digit-recognizer/submission.csv', newline='\n', mode = 'w') as csvfile:
         digitwriter = csv.writer(csvfile, delimiter=',')
@@ -59,7 +57,7 @@ def softmax(logits):
   return counts / denominator, logits - denominator.log() #probs, log_softmax
 
 #modified from karpathy's demo.ipynb
-def loss(X, y, model, batch_size=None, regularization=True):
+def loss(X, y, model, batch_size=None, regularization=True, alpha=1e-8):
 
     if batch_size is None:  #dataloader
         Xb, yb = X, y
@@ -76,12 +74,12 @@ def loss(X, y, model, batch_size=None, regularization=True):
 
     if regularization:
         # L2 regularization
-        alpha = 0.0001
+        #alpha = 0.0001
         reg_loss = alpha * sum([p.flatten()@p.flatten().transpose() for p in model.parameters()])
         return np.average(losses) + reg_loss, np.average(accuracy) # (total_loss = data_loss + reg_loss)
     return np.average(losses), np.average(accuracy)
 
-def kaggle_training(epochs = 10, batch_size = None, regularization = True):
+def kaggle_training(epochs = 10, batch_size = None, regularization = True, learning_rate = 0.0001, alpha = 1e-8):
     X = np.empty((42000, 28*28), dtype = int)
     y = np.empty(42000, dtype = int)
     with open('digit-recognizer/train.csv', newline='\n') as csvfile:
@@ -90,22 +88,59 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
             if digitreader.line_num != 1: #line_num starts at 1, not 0
                 y[digitreader.line_num-2] = int(row[0])
                 X[digitreader.line_num-2] = [int(char) for char in row[1:]]
-    
     X = (X-np.average(X)) / np.std(X)  #data normalization
-    X = X.reshape(42000, 28, 28, 1)    #reshape for ConvNet
+
+    class TestNet:
+        def __init__(self):
+            
+            self.params = { # 2 / (# of inputs from last layer) for He initialization
+                #'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
+                #'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
+
+                'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
+                #'f2' : Tensor(np.random.randn(10, 5, 5, 5) * np.sqrt(2 / (24*24*5))),
+                'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
+                #'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
+                'b1' : Tensor(np.zeros((1, 64))),
+                'w2' : Tensor(np.random.randn(64, 16) * np.sqrt(2 / (64))),
+                'b2' : Tensor(np.zeros((1, 16))),
+                'w3' : Tensor(np.random.randn(16, 10) * np.sqrt(2 / (16))),
+                'b3' : Tensor(np.zeros((1, 10))),
+            }
+
+        def parameters(self):
+            return self.params.values()
+        
+        def zero_grad(self):
+            for param in self.params.values():
+                param.grad.fill(0)
+
+        def __call__(self, x:Tensor) -> Tensor:
+            #l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu().maxPool2d()
+            #l2 = l1.conv(self.params['f2']).relu().maxPool2d()
+
+            l2 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu()
+            #l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu()
+            #l2 = l1.conv(self.params['f2']).relu()
+            l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
+            l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
+            return (l4 @ self.params['w3']) + self.params['b3']
 
     # initialize a model 
     class ConvNet:
         def __init__(self):
             
             self.params = { # 2 / (# of inputs from last layer) for He initialization
-                'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
-                'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
+                # 'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
+                # 'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
 
                 # 'f1d' : Tensor(np.random.randn(5, 5, 1) * np.sqrt(2 / (28*28*1))),
                 # 'f1p' : Tensor(np.random.randn(1, 1, 1, 6) * np.sqrt(2 / (24*24*1))),
                 # 'f2d' : Tensor(np.random.randn(5, 5, 6) * np.sqrt(2 / (12*12*6))),
                 # 'f2p' : Tensor(np.random.randn(1, 1, 6, 16) * np.sqrt(2 / (8*8*6))),
+
+                'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
+                'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
 
                 'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
                 'b1' : Tensor(np.zeros((1, 64))),
@@ -123,7 +158,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
                 param.grad.fill(0)
 
         def __call__(self, x:Tensor) -> Tensor:
-            l1 = x.conv(self.params['f1']).relu().maxPool2d()
+            l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu().maxPool2d()
             l2 = l1.conv(self.params['f2']).relu().maxPool2d()
             
             #l1 = x.dconv(self.params['f1d']).conv(self.params['f1p']).relu().maxPool2d() #depthwise separable convolution
@@ -165,8 +200,10 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
             l5 = ((l4 @ self.params['w5']) + self.params['b5']).relu()
             return (l5 @ self.params['w6']) + self.params['b6']
     
-    model = ConvNet()
-    learning_rate, beta1, beta2, epsilon, weight_decay = 0.001, 0.9, 0.999, 1e-10, 0.01 #NOTE: cost will not converge if learning rate is too high
+    #model = ConvNet()
+    model = TestNet()
+    #learning_rate, beta1, beta2, epsilon, weight_decay = 0.0001, 0.9, 0.999, 1e-10, 0.01 #NOTE: cost will not converge if learning rate is too high
+    beta1, beta2, epsilon, weight_decay = 0.9, 0.999, 1e-10, 0.01
     print('TRAINING BEGINS')
     startTime = time.time()
 
@@ -174,7 +211,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
     for k in range(epochs):
         
         # forward
-        total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization)
+        total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization, alpha = alpha)
 
         # backward
         model.zero_grad()
@@ -190,7 +227,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
             p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon)
         
         if k % 1 == 0:
-            print(f"step {k} loss {total_loss.data}, accuracy {acc*100}%")
+            print(f"step {k} loss {total_loss.data.real[0][0]}, accuracy {acc*100}%")
 
     endTime = time.time()
     print('TRAINING COMPLETE (in', round((endTime - startTime) / 60, 3), 'min)')
@@ -201,4 +238,5 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True):
 
 #############################################################################################
 
-kaggle_training(epochs = 10, batch_size = 10, regularization = False)
+#kaggle_training(epochs = 100, batch_size = 50, regularization = False)
+kaggle_training(epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)

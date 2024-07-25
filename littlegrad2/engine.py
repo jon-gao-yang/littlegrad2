@@ -6,7 +6,8 @@ class Tensor:
         self.backward = lambda: None
         self._op = op
         
-        self.data = data if isinstance(data, np.ndarray) else np.array(object = data, dtype = float)
+        self.data = np.array(object = data.data, dtype = np.complex128) if isinstance(data, np.ndarray) else np.array(object = data, dtype = np.complex128)
+        # ^ NOTE: leave some arrays as float64 if there are memory issues (also complex128 might be hardware specific?)
         #self.data = data if isinstance(data, np.ndarray) else np.array(object = data)
         self.data = self.data if self.data.ndim >= 2 else self.data.reshape((1,-1))
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
@@ -100,51 +101,31 @@ class Tensor:
     
     def dot(self, other):
         return self.flatten() @ other.flatten().transpose()
-        
-    # def conv2d(self, other): #TODO: enforce correct matrix dims
-    #     (nx, ny, nc) = self.data.shape
-    #     (fx, fy, fc, fn) = other.data.shape #TODO: ENFORCE NC == FC?
-    #     out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, fn)), children = (self, other), op = 'conv')
-    #     for x in range(out.data.shape[0]):
-    #         for y in range(out.data.shape[1]):
-    #             for f in range(out.data.shape[2]):
-    #                 mask = out.slice((slice(x, x+1), slice(y, y+1), slice(f, f+1)))
-    #                 mask += self.slice((slice(x, x+fx), slice(y, y+fy))).dot(other.slice((slice(fx+1), slice(fy+1), slice(fc+1), slice(f, f+1))))
-    #     return out
-    
-    # def dconv2d(self, other): #TODO: enforce correct matrix dims
-    #     (nx, ny, nc) = self.data.shape
-    #     (fx, fy, fc) = other.data.shape #TODO: ENFORCE NC == FC?
-    #     out = Tensor(data = np.zeros(shape = (nx-fx+1, ny-fy+1, nc)), children = (self, other), op = 'dconv')
-    #     for x in range(out.data.shape[0]):
-    #         for y in range(out.data.shape[1]):
-    #             for c in range(out.data.shape[2]):
-    #                 mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
-    #                 mask += self.slice((slice(x, x+fx), slice(y, y+fy), slice(c, c+1))).dot(other.slice((slice(fx+1), slice(fy+1), slice(c, c+1))))
-    #     return out
     
     def conv(self, other): #TODO: enforce correct matrix dims? (and other's type?)
-        #return (self.dftNd() * other.flip().dftNd()).idftNd()
-
-        otherPadded = Tensor(data = np.zeros_like(self.data, dtype = float)).sliceAdd(other.flip(), tuple([slice(dim) for dim in other.data.shape][:-1]))
-        out = (self.dftNd() * otherPadded.dftNd()).idftNd()
-        return out.slice((slice(-1-other.data.shape[0], self.data.shape[0]), slice(-1-other.data.shape[1], self.data.shape[1])))
-    
-    def maxPool2d(self, filter_size = 2, stride = 2):
-        (nx, ny, nc) = self.data.shape
-        out = Tensor(data = np.ndarray(shape = (nx//stride, ny//stride, nc)), children = (self,), op = 'pool')
-        for x in range(out.data.shape[0]):
-            for y in range(out.data.shape[1]):
-                for c in range(out.data.shape[2]):
-                    mask = out.slice((slice(x, x+1), slice(y, y+1), slice(c, c+1)))
-                    mask += self.slice((slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size), slice(c, c+1))).max()
+        (nc, nx, ny) = self.data.shape #NOTE: CHANNELS FIRST
+        (fn, fc, fx, fy) = other.data.shape #NOTE: FILTERs & CHANNELS FIRST
+        out = Tensor(data = np.zeros(shape = (fn, nx-fx+1, ny-fy+1)))
+        for f in range(fn):
+            otherPadded = Tensor(data = np.zeros_like(self.data)).sliceAdd(other.slice((f)).flip(), (slice(fc), slice(fx), slice(fy)))
+            out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(1), slice(fx-1, nx), slice(fy-1, ny))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
         return out
 
-    def transpose(self, axes = None):    
-        out = Tensor(data = np.transpose(self.data, axes = axes), children = (self,), op = 'T')
+    def maxPool2d(self, filter_size = 2, stride = 2):
+        (nc, nx, ny) = self.data.shape
+        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'pool')
+        for c in range(out.data.shape[0]):
+            for x in range(out.data.shape[1]):
+                for y in range(out.data.shape[2]):
+                    out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
+        return out
+
+    def transpose(self): #increment dims (0->1, 1->2, etc)
+        dims = np.arange(len(self.data.shape))
+        out = Tensor(data = np.transpose(self.data, axes = np.roll(dims, 1)), children = (self,), op = 'T')
 
         def backward():
-            self.grad += out.grad.T
+            self.grad += np.transpose(out.grad, axes = np.roll(dims, -1))
         out.backward = backward
         return out
     
@@ -159,22 +140,22 @@ class Tensor:
     def flatten(self):
         return self.reshape((1, -1))
     
-    def slice(self, slice_object_tuple):
-        out = Tensor(data = self.data[slice_object_tuple], children = (self,), op = 'S')
+    def slice(self, slice_index_tuple):
+        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
 
         def backward():
-            self.grad[slice_object_tuple] += out.grad
+            self.grad[slice_index_tuple] += out.grad
         out.backward = backward
         return out
 
-    def sliceAdd(self, other, slice_object_tuple): #TODO: check tensor dims? also is this correct?
+    def sliceAdd(self, other, slice_index_tuple): #TODO: check tensor dims? also is this correct?
         other = other if type(other) == Tensor else Tensor(other)
         out = Tensor(data = self.data, children = (self, other), op = 'S+')
-        out.data[slice_object_tuple] += other.data
+        out.data[slice_index_tuple] += other.data
 
         def backward():
-            self.grad[slice_object_tuple] += out.grad
-            other.grad += out.grad
+            self.grad += out.grad
+            other.grad += out.grad[slice_index_tuple]
         out.backward = backward
         return out
     
@@ -190,23 +171,14 @@ class Tensor:
         out.backward = backward
         return out
     
-    # def dft1d(self): # 1-dimensional discrete fourier transform 
-    #     dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
-    #     return self @ np.exp(-2j * np.pi * dftMatrix / len(self.data))
-    
     def dftNd(self):
         out = Tensor(data = self.data)
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
             dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
-            out = (out.reshape((-1, shape[0])) @ np.exp(-2j * np.pi * dftMatrix / shape[0])).reshape(shape)
-            out = np.transpose(out, axes = np.roll(dims, 1)) #increment dims (0->1, 1->2, etc)
+            out = (out.reshape((-1, shape[0])) @ np.exp(-2j * np.pi * dftMatrix / shape[0])).reshape(shape).transpose()
         return out
-    
-    # def idft1d(self):
-    #     dftMatrix = np.arange(len(self.data)).reshape((-1, 1)) @ np.arange(len(self.data)).reshape((1, -1))
-    #     return (self @ np.exp(2j * np.pi * dftMatrix / len(self.data))) / len(self.data)
     
     def idftNd(self):
         out = Tensor(data = self.data)
@@ -214,8 +186,7 @@ class Tensor:
         for dim in dims:
             shape = out.data.shape
             dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
-            out = ((out.reshape((-1, shape[0])) @ np.exp(2j * np.pi * dftMatrix / shape[0])) / shape[0]).reshape(shape)
-            out = np.transpose(out, axes = np.roll(dims, 1)) #increment dims (0->1, 1->2, etc)
+            out = ((out.reshape((-1, shape[0])) @ np.exp(2j * np.pi * dftMatrix / shape[0])) / shape[0]).reshape(shape).transpose()
         return out
 
     def exp(self):
