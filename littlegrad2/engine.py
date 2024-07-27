@@ -44,7 +44,8 @@ class Tensor:
         
         def backward():
             self.grad += (other.data * (self.data ** (other.data - 1))) * out.grad
-            other.grad += (self.data ** other.data) * np.log(max(abs(self.data), 1e-10)) * out.grad
+            #other.grad += (self.data ** other.data) * np.log(max(abs(self.data), 1e-10)) * out.grad # doesn't work for batched training
+            other.grad += (self.data ** other.data) * np.log(self.data + ((self.data == 0) * 1e-10)) * out.grad
         out.backward = backward
         return out
     
@@ -102,13 +103,22 @@ class Tensor:
     def dot(self, other):
         return self.flatten() @ other.flatten().transpose()
     
-    def conv(self, other): #TODO: enforce correct matrix dims? (and other's type?)
+    def conv(self, other, stride = 1): #TODO: enforce correct matrix dims?
+        other = other if type(other) == Tensor else Tensor(other)
         (nc, nx, ny) = self.data.shape #NOTE: CHANNELS FIRST
         (fn, fc, fx, fy) = other.data.shape #NOTE: FILTERs & CHANNELS FIRST
-        out = Tensor(data = np.zeros(shape = (fn, nx-fx+1, ny-fy+1)))
+        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)))
         for f in range(fn):
             otherPadded = Tensor(data = np.zeros_like(self.data)).sliceAdd(other.slice((f)).flip(), (slice(fc), slice(fx), slice(fy)))
-            out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(1), slice(fx-1, nx), slice(fy-1, ny))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+            out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+        return out
+    
+    def avgPool(self, filter_size = 2, stride = 2):
+        (nc, nx, ny) = self.data.shape
+        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)))
+        filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
+        for c in range(nc):
+            out = out.sliceAdd(self.slice((slice(c, c+1))).conv(filter, stride = stride), (slice(c, c+1)))
         return out
 
     def maxPool2d(self, filter_size = 2, stride = 2):
