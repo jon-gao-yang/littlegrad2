@@ -8,7 +8,7 @@ class Tensor:
         
         #self.data = np.array(object = data.data, dtype = np.complex128) if isinstance(data, np.ndarray) else np.array(object = data, dtype = np.complex128)
         # ^ NOTE: leave some arrays as float64 if there are memory issues (also complex128 might be hardware specific?)
-        self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data))
+        self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data), dtype = float)
         # ^ NOTE: reshapes 1d arrays to (1, -1), TAKES WAY LESS TIME THAN COMPLEX128
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 

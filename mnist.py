@@ -7,14 +7,11 @@ import time
 
 #based on a practice assignment from Andrew Ng's "Advanced Learning Algorithms" Coursera course
 def plot_kaggle_data(X, y, model, predict=False):
-    #m, n = X.shape
-
     fig, axes = plt.subplots(8,8, figsize=(5,5))
     fig.tight_layout(pad=0.13,rect=[0, 0.03, 1, 0.91]) #[left, bottom, right, top]
 
     for i,ax in enumerate(axes.flat):
         # Select random indices
-        #random_index = np.random.randint(m)
         random_index = np.random.randint(X.shape[0])
         
         # Select rows corresponding to the random indices and reshape the image
@@ -30,26 +27,18 @@ def plot_kaggle_data(X, y, model, predict=False):
             yhat = np.argmax(probs.data)
         
         # Display the label above the image
-        ax.set_title(f"{int(y[random_index])},{yhat}",fontsize=10)
+        ax.set_title(f"{y[random_index]},{yhat}",fontsize=10)
         ax.set_axis_off()
     fig.suptitle("Label, yhat", fontsize=14)
     plt.show()
 
 def write_kaggle_submission(model):
-    X = np.empty((28000, 28*28), dtype = int)
-    with open('digit-recognizer/test.csv', newline='\n') as csvfile:
-        digitreader = csv.reader(csvfile, delimiter=',')
-        for row in digitreader:
-            if digitreader.line_num != 1: #line_num starts at 1, not 0
-                X[digitreader.line_num-2] = [int(char) for char in row] #no labels so entire row is pixel data
-    X = (X-np.average(X)) / np.std(X)  #data normalization
+    X = np.loadtxt('digit-recognizer/test.csv', dtype = int, delimiter = ',', skiprows = 1) # data loading
+    X = (X-np.average(X)) / np.std(X)  # data normalization
 
-    with open('digit-recognizer/submission.csv', newline='\n', mode = 'w') as csvfile:
-        digitwriter = csv.writer(csvfile, delimiter=',')
-        digitwriter.writerow(['ImageId','Label'])
-        for i in range(X.shape[0]):
-            probs, log_softmax = softmax(model(Tensor(X[i])))
-            digitwriter.writerow([i+1, np.argmax(probs.data)])  #take most likely digit as guess
+    probs, log_softmax = softmax(model(Tensor(X))) # inference
+    out = np.concatenate((np.arange(1, X.shape[0]+1).reshape((-1, 1)), np.argmax(probs.data, axis = 1).reshape((-1, 1))), axis = 1)
+    np.savetxt('digit-recognizer/submission.csv', out, delimiter = ',', fmt = '%s', header = 'ImageId,Label', comments = '')
 
 def softmax(logits):
   counts = logits.exp()
@@ -76,15 +65,10 @@ def loss(X, y, model, batch_size=None, regularization=True, alpha=1e-8):
     return losses, accuracy
 
 def kaggle_training(epochs = 10, batch_size = None, regularization = True, learning_rate = 0.0001, alpha = 1e-8):
-    X = np.empty((42000, 28*28), dtype = int)
-    y = np.empty(42000, dtype = int)
-    with open('digit-recognizer/train.csv', newline='\n') as csvfile:
-        digitreader = csv.reader(csvfile, delimiter=',')
-        for row in digitreader:
-            if digitreader.line_num != 1: #line_num starts at 1, not 0
-                y[digitreader.line_num-2] = int(row[0])
-                X[digitreader.line_num-2] = [int(char) for char in row[1:]]
-    X = (X-np.average(X)) / np.std(X)  #data normalization
+    [y, X] = np.split(np.loadtxt('digit-recognizer/train.csv', dtype = int, delimiter = ',', skiprows = 1), [1], axis = 1)
+    # ^ NOTE: loading data from file, then splitting into labels (first col) and pixel vals
+    y = np.squeeze(y) # 2D -> 1D
+    X = (X-np.average(X)) / np.std(X)  # data normalization
 
     class TestNet:
         def __init__(self):
@@ -182,18 +166,16 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
         def __init__(self):
             
             self.params = {                
-                'w1' : Tensor(np.random.randn(28*28, 320) * np.sqrt(2 / (28*28))), # 2 / (# of inputs from last layer)
-                'b1' : Tensor(np.zeros((1, 320))),
-                'w2' : Tensor(np.random.randn(320, 160) * np.sqrt(2 / 320)), # 2 / (# of inputs from last layer)
-                'b2' : Tensor(np.zeros((1, 160))),
-                'w3' : Tensor(np.random.randn(160, 80) * np.sqrt(2 / 160)), # 2 / (# of inputs from last layer)
-                'b3' : Tensor(np.zeros((1, 80))),
-                'w4' : Tensor(np.random.randn(80, 40) * np.sqrt(2 / 80)), # 2 / (# of inputs from last layer)
-                'b4' : Tensor(np.zeros((1, 40))),
-                'w5' : Tensor(np.random.randn(40, 20) * np.sqrt(2 / 40)), # 2 / (# of inputs from last layer)
-                'b5' : Tensor(np.zeros((1, 20))),
-                'w6' : Tensor(np.random.randn(20, 10) * np.sqrt(2 / 20)), # 2 / (# of inputs from last layer)
-                'b6' : Tensor(np.zeros((1, 10)))
+                'w1' : Tensor(np.random.randn(28*28, 160) * np.sqrt(2 / (28*28))), # 2 / (# of inputs from last layer)
+                'b1' : Tensor(np.zeros((1, 160))),
+                'w2' : Tensor(np.random.randn(160, 80) * np.sqrt(2 / 160)), # 2 / (# of inputs from last layer)
+                'b2' : Tensor(np.zeros((1, 80))),
+                'w3' : Tensor(np.random.randn(80, 40) * np.sqrt(2 / 80)), # 2 / (# of inputs from last layer)
+                'b3' : Tensor(np.zeros((1, 40))),
+                'w4' : Tensor(np.random.randn(40, 20) * np.sqrt(2 / 40)), # 2 / (# of inputs from last layer)
+                'b4' : Tensor(np.zeros((1, 20))),
+                'w5' : Tensor(np.random.randn(20, 10) * np.sqrt(2 / 20)), # 2 / (# of inputs from last layer)
+                'b5' : Tensor(np.zeros((1, 10)))
             }
 
         def parameters(self):
@@ -208,8 +190,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
             l2 = ((l1 @ self.params['w2']) + self.params['b2']).relu()
             l3 = ((l2 @ self.params['w3']) + self.params['b3']).relu()
             l4 = ((l3 @ self.params['w4']) + self.params['b4']).relu()
-            l5 = ((l4 @ self.params['w5']) + self.params['b5']).relu()
-            return (l5 @ self.params['w6']) + self.params['b6']
+            return (l4 @ self.params['w5']) + self.params['b5']
     
     #model = ConvNet()
     model = TestNet()
@@ -248,15 +229,13 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
     endTime = time.time()
     print('TRAINING COMPLETE (in', endTime - startTime, 'sec)')
     plot_kaggle_data(X, y, model, predict = True)
-    #print('BEGINNING TEST SET INFERENCE')
-    #write_kaggle_submission(model)
-    #print('TEST SET INFERENCE COMPLETE')
+    print('BEGINNING TEST SET INFERENCE')
+    write_kaggle_submission(model)
+    print('TEST SET INFERENCE COMPLETE')
 
 #############################################################################################
 
 #kaggle_training(epochs = 100, batch_size = 50, regularization = False, learning_rate = 0.0001)
 #kaggle_training(epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 
-
-#.0058
 kaggle_training(epochs = 210, batch_size = 1000, regularization = False, learning_rate = 0.00468, alpha = 0)
