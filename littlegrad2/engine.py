@@ -6,10 +6,10 @@ class Tensor:
         self.backward = lambda: None
         self._op = op
         
-        self.data = np.array(object = data.data, dtype = np.complex128) if isinstance(data, np.ndarray) else np.array(object = data, dtype = np.complex128)
+        #self.data = np.array(object = data.data, dtype = np.complex128) if isinstance(data, np.ndarray) else np.array(object = data, dtype = np.complex128)
         # ^ NOTE: leave some arrays as float64 if there are memory issues (also complex128 might be hardware specific?)
-        #self.data = data if isinstance(data, np.ndarray) else np.array(object = data)
-        self.data = self.data if self.data.ndim >= 2 else self.data.reshape((1,-1))
+        self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data))
+        # ^ NOTE: reshapes 1d arrays to (1, -1), TAKES WAY LESS TIME THAN COMPLEX128
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 
     def __repr__(self):
@@ -17,7 +17,11 @@ class Tensor:
     
     def __add__(self, other):
         other = other if isinstance(other, Tensor) else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
+        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
+        if other.data.shape != self.data.shape: # manual broadcasting to keep track of grads
+            otherCopy = Tensor(np.ndarray((self.data.shape)))
+            np.copyto(otherCopy.data, other.data)
+            other = otherCopy
         out = Tensor(data = (self.data + other.data), children = (self, other), op = '+')
 
         def backward():
@@ -28,7 +32,12 @@ class Tensor:
     
     def __mul__(self, other):
         other = other if type(other) == Tensor else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params   
+        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params   
+        if other.data.shape != self.data.shape: # manual broadcasting to keep track of grads
+            otherCopy = Tensor(np.ndarray((self.data.shape)))
+            np.copyto(otherCopy.data, other.data)
+            other = otherCopy
+        
         out = Tensor(data = (self.data * other.data), children = (self, other), op = '*')
         
         def backward():
@@ -100,9 +109,6 @@ class Tensor:
         out.backward = backward
         return out
     
-    def dot(self, other):
-        return self.flatten() @ other.flatten().transpose()
-    
     def conv(self, other, stride = 1): #TODO: enforce correct matrix dims?
         other = other if type(other) == Tensor else Tensor(other)
         (nc, nx, ny) = self.data.shape #NOTE: CHANNELS FIRST
@@ -130,7 +136,7 @@ class Tensor:
                     out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
         return out
 
-    def transpose(self): #increment dims (0->1, 1->2, etc)
+    def transpose(self): #shifts axes (0->1, 1->2, etc)
         dims = np.arange(len(self.data.shape))
         out = Tensor(data = np.transpose(self.data, axes = np.roll(dims, 1)), children = (self,), op = 'T')
 
