@@ -6,10 +6,13 @@ class Tensor:
         self.backward = lambda: None
         self._op = op
         
-        #self.data = np.array(object = data.data, dtype = np.complex128) if isinstance(data, np.ndarray) else np.array(object = data, dtype = np.complex128)
+        # FOR CONV NET:
+        self.data = np.atleast_2d(np.array(object = data.data, dtype = np.complex128)) if isinstance(data, np.ndarray) else np.atleast_2d(np.array(object = data, dtype = np.complex128))
         # ^ NOTE: leave some arrays as float64 if there are memory issues (also complex128 might be hardware specific?)
-        self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data), dtype = float)
+        # FOR LINEAR NET:
+        #self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data), dtype = float)
         # ^ NOTE: reshapes 1d arrays to (1, -1), TAKES WAY LESS TIME THAN COMPLEX128
+
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 
     def __repr__(self):
@@ -62,7 +65,7 @@ class Tensor:
         return self + (-other)
     
     def __truediv__(self, other):
-        return self * (other**-1.0)
+        return self * (other ** -1)
     
     def __radd__(self, other): # runs if other + self didn't work
         return self + other
@@ -94,12 +97,12 @@ class Tensor:
         out = Tensor(data = (self.data > 0) * self.data, children = (self,), op = 'ReLU')
 
         def backward():
-            #self.grad += out.grad if self.data else 0 #negative numbers still evaluate to True for some dumb reason
+            #self.grad += out.grad if self.data else 0 # negative numbers still evaluate to True for some dumb reason
             self.grad += (self.data > 0) * out.grad
         out.backward = backward
         return out
     
-    def __matmul__(self, other): #almost identical to __mul__
+    def __matmul__(self, other): # almost identical to __mul__
         other = other if type(other) == Tensor else Tensor(other)
         out = Tensor(data = (self.data @ other.data), children = (self, other), op = '@')
         
@@ -109,11 +112,11 @@ class Tensor:
         out.backward = backward
         return out
     
-    def conv(self, other, stride = 1): #TODO: enforce correct matrix dims?
+    def conv(self, other, stride = 1): # TODO: enforce correct matrix dims?
         other = other if type(other) == Tensor else Tensor(other)
-        (nc, nx, ny) = self.data.shape #NOTE: CHANNELS FIRST
-        (fn, fc, fx, fy) = other.data.shape #NOTE: FILTERs & CHANNELS FIRST
-        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)))
+        (nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
+        (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
+        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), children = (self, other), op = 'conv')
         for f in range(fn):
             otherPadded = Tensor(data = np.zeros_like(self.data)).sliceAdd(other.slice((f)).flip(), (slice(fc), slice(fx), slice(fy)))
             out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
@@ -121,22 +124,22 @@ class Tensor:
     
     def avgPool(self, filter_size = 2, stride = 2):
         (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)))
+        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'avgPool')
         filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
         for c in range(nc):
             out = out.sliceAdd(self.slice((slice(c, c+1))).conv(filter, stride = stride), (slice(c, c+1)))
         return out
 
-    def maxPool2d(self, filter_size = 2, stride = 2):
+    def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
         (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'pool')
+        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'maxPool')
         for c in range(out.data.shape[0]):
             for x in range(out.data.shape[1]):
                 for y in range(out.data.shape[2]):
                     out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
         return out
 
-    def transpose(self): #shifts axes (0->1, 1->2, etc)
+    def transpose(self): # shifts axes (0->1, 1->2, etc)
         dims = np.arange(len(self.data.shape))
         out = Tensor(data = np.transpose(self.data, axes = np.roll(dims, 1)), children = (self,), op = 'T')
 
@@ -164,7 +167,7 @@ class Tensor:
         out.backward = backward
         return out
 
-    def sliceAdd(self, other, slice_index_tuple): #TODO: check tensor dims? also is this correct?
+    def sliceAdd(self, other, slice_index_tuple): # TODO: check tensor dims? also is this correct?
         other = other if type(other) == Tensor else Tensor(other)
         out = Tensor(data = self.data, children = (self, other), op = 'S+')
         out.data[slice_index_tuple] += other.data
@@ -188,7 +191,7 @@ class Tensor:
         return out
     
     def dftNd(self):
-        out = Tensor(data = self.data)
+        out = Tensor(data = self.data, children = (self,), op = 'dft')
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
@@ -197,7 +200,7 @@ class Tensor:
         return out
     
     def idftNd(self):
-        out = Tensor(data = self.data)
+        out = Tensor(data = self.data, children = (self,), op = 'idft')
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
@@ -235,4 +238,4 @@ class Tensor:
         self.grad = np.ones(shape = self.grad.shape, dtype = float)
         for node in reversed(nodeList):
             node.backward()
-            #print(node, ': ', [child.grad for child in node.children]) #for debug
+            #print(node, ': ', [child.grad for child in node.children]) # for debug
