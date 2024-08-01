@@ -115,16 +115,19 @@ class Tensor:
     def conv(self, other, stride = 1): # TODO: enforce correct matrix dims?
         other = other if type(other) == Tensor else Tensor(other)
         (nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
+        # ^ TODO: ADD M TO ALLOW VECTORIZATION (AND TRY TO USE SPLIT/CONCAT TO GET RID OF FOR LOOP)
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
-        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), children = (self, other), op = 'conv')
+        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
+        
         for f in range(fn):
             otherPadded = Tensor(data = np.zeros_like(self.data)).sliceAdd(other.slice((f)).flip(), (slice(fc), slice(fx), slice(fy)))
             out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+
         return out
     
     def avgPool(self, filter_size = 2, stride = 2):
         (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'avgPool')
+        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
         filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
         for c in range(nc):
             out = out.sliceAdd(self.slice((slice(c, c+1))).conv(filter, stride = stride), (slice(c, c+1)))
@@ -132,7 +135,7 @@ class Tensor:
 
     def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
         (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), children = (self,), op = 'maxPool')
+        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), op = 'maxPool') # NOTE: doesn't need children/backwards because it's basically a literal
         for c in range(out.data.shape[0]):
             for x in range(out.data.shape[1]):
                 for y in range(out.data.shape[2]):
@@ -191,7 +194,7 @@ class Tensor:
         return out
     
     def dftNd(self):
-        out = Tensor(data = self.data, children = (self,), op = 'dft')
+        out = self
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
@@ -200,7 +203,7 @@ class Tensor:
         return out
     
     def idftNd(self):
-        out = Tensor(data = self.data, children = (self,), op = 'idft')
+        out = self
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape

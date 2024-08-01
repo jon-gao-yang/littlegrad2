@@ -14,8 +14,8 @@ class TestNet:
             'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
             'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
 
-            #'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
-            'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
+            'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
+            #'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
             #'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
             'b1' : Tensor(np.zeros((1, 64))),
             'w2' : Tensor(np.random.randn(64, 10) * np.sqrt(2 / (64))),
@@ -33,8 +33,8 @@ class TestNet:
             param.grad.fill(0)
 
     def __call__(self, x:Tensor) -> Tensor:
-        l2 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu().avgPool()
-        #l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu().avgPool()
+        l2 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu()
+        #l1 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu().avgPool()
         #l2 = l1.conv(self.params['f2']).relu().avgPool()
         l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
         return((l3 @ self.params['w2']) + self.params['b2'])
@@ -196,12 +196,13 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
         
         # update parameters w/ AdamW Algorithm
         for p in model.parameters(): 
-            p.data -= p.data * learning_rate * weight_decay
-            p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
-            p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
-            v_dp_corrected = p.v / (1 - (beta1**(k+1)))
-            s_dp_corrected = p.s / (1 - (beta2**(k+1)))
-            p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon) #doesn't work for broadasted bias v/s/grad tensors
+            p.data -= learning_rate * p.grad
+            # p.data -= p.data * learning_rate * weight_decay
+            # p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
+            # p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
+            # v_dp_corrected = p.v / (1 - (beta1**(k+1)))
+            # s_dp_corrected = p.s / (1 - (beta2**(k+1)))
+            # p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon) #doesn't work for broadasted bias v/s/grad tensors
 
         print(f"step {k} loss {total_loss.data.real[0, 0]}, accuracy {acc*100}%")
 
@@ -214,7 +215,7 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
 
 ###### [ 4/4 : MAIN FUNCTION EXECUTION ] ###### (NOTE: cost will not converge if learning rate is too high)
 
-kaggle_training(epochs = 20, batch_size = 10, regularization = False, learning_rate = 0.0001, alpha = 0)
+kaggle_training(epochs = 50, batch_size = 1, regularization = False, learning_rate = 0.00001, alpha = 0)
 #kaggle_training(epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 
 # for LinearNet():
