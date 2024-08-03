@@ -141,6 +141,30 @@ class Tensor:
                 for y in range(out.data.shape[2]):
                     out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
         return out
+    
+    def pad(self, slice_index_tuple):
+        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+
+        def backward():
+            self.grad[slice_index_tuple] += out.grad
+        out.backward = backward
+        return out
+    
+    def split(self, slice_index_tuple):
+        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+
+        def backward():
+            self.grad[slice_index_tuple] += out.grad
+        out.backward = backward
+        return out
+    
+    def concatenate(self, slice_index_tuple):
+        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+
+        def backward():
+            self.grad[slice_index_tuple] += out.grad
+        out.backward = backward
+        return out
 
     def transpose(self): # shifts axes (0->1, 1->2, etc)
         dims = np.arange(len(self.data.shape))

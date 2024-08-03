@@ -160,7 +160,8 @@ def loss(X, y, model, batch_size=None, regularization=True, alpha=1e-8):
         ri = np.random.permutation(X.shape[0])[:batch_size] # shuffles the X indexes and returns the first 10
         Xb, yb = X[ri], y[ri]
 
-    probs, log_softmax = softmax(model(Tensor(Xb))) # x --(model)--> logits --(softmax)--> probs --(-log)--> nll loss
+    # x --(model)--> logits --(softmax)--> probs --(-log)--> nll loss --(avg over batch)--> cost --(backprop)--> grads
+    probs, log_softmax = softmax(model(Tensor(Xb))) 
     losses = Tensor(np.zeros_like(probs.data))
     losses.data[np.arange(probs.data.shape[0]), yb] = -1
     losses = (losses * log_softmax).flatten() @ Tensor(np.ones((probs.data.size, 1))) / probs.data.shape[0]
