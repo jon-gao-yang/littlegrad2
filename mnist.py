@@ -14,8 +14,8 @@ class TestNet:
             'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
             'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
 
-            'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
-            #'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
+            #'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
+            'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
             #'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
             'b1' : Tensor(np.zeros((1, 64))),
             'w2' : Tensor(np.random.randn(64, 10) * np.sqrt(2 / (64))),
@@ -69,6 +69,9 @@ class ConvNet:
         for param in self.params.values():
             param.grad.fill(0)
 
+    def param_num(self):
+        return np.sum([t.data.size for t in self.params.values()])
+
     def __call__(self, x:Tensor) -> Tensor:
         l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu().maxPool2d()
         l2 = l1.conv(self.params['f2']).relu().maxPool2d()
@@ -101,6 +104,9 @@ class LinearNet:
     def zero_grad(self):
         for param in self.params.values():
             param.grad.fill(0)
+
+    def param_num(self):
+        return np.sum([t.data.size for t in self.params.values()])
 
     def __call__(self, x:Tensor) -> Tensor:
         l1 = ((x @ self.params['w1']) + self.params['b1']).relu()
@@ -179,8 +185,8 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
     y = np.squeeze(y) # 2D -> 1D
     X = (X-np.average(X)) / np.std(X)  # data normalization
     
-    #model = ConvNet()
-    model = TestNet()
+    model = LinearNet()
+    #model = TestNet()
     beta1, beta2, epsilon, weight_decay = 0.9, 0.999, 1e-10, 0.01
     print('TRAINING BEGINS (with', model.param_num(), 'parameters)')
     startTime = time.time()
@@ -216,7 +222,9 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
 
 ###### [ 4/4 : MAIN FUNCTION EXECUTION ] ###### (NOTE: cost will not converge if learning rate is too high)
 
+# for current TestNet():
 kaggle_training(epochs = 50, batch_size = 1, regularization = False, learning_rate = 0.00001, alpha = 0)
+
 #kaggle_training(epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 
 # for LinearNet():

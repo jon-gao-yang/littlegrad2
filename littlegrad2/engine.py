@@ -5,26 +5,17 @@ class Tensor:
         self.children = children
         self.backward = lambda: None
         self._op = op
-        
-        # FOR CONV NET:
-        self.data = np.atleast_2d(np.array(object = data.data, dtype = np.complex128)) if isinstance(data, np.ndarray) else np.atleast_2d(np.array(object = data, dtype = np.complex128))
-        # ^ NOTE: leave some arrays as float64 if there are memory issues (also complex128 might be hardware specific?)
-        # FOR LINEAR NET:
-        #self.data = np.atleast_2d(data) if isinstance(data, np.ndarray) else np.array(object = np.atleast_2d(data), dtype = float)
-        # ^ NOTE: reshapes 1d arrays to (1, -1), TAKES WAY LESS TIME THAN COMPLEX128
-
+        self.type = np.complex128 # for ConvNet()
+        #self.type = float  # for LinearNet() (MUCH faster than complex128)
+        self.data = np.atleast_2d(data.astype(self.type)) if isinstance(data, np.ndarray) else np.atleast_2d(np.array(object = data, dtype = self.type))
+        # ^ NOTE: np.atleast_2d() reshapes 1d arrays to (1, -1)
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
 
     def __repr__(self):
         return f"Tensor object with data {self.data}"
     
     def __add__(self, other):
-        other = other if isinstance(other, Tensor) else Tensor(other)
-        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
-        if other.data.shape != self.data.shape: # manual broadcasting to keep track of grads
-            otherCopy = Tensor(np.ndarray((self.data.shape)))
-            np.copyto(otherCopy.data, other.data)
-            other = otherCopy
+        other = self.makeCompatible(other, op = '+')
         out = Tensor(data = (self.data + other.data), children = (self, other), op = '+')
 
         def backward():
@@ -34,13 +25,7 @@ class Tensor:
         return out
     
     def __mul__(self, other):
-        other = other if type(other) == Tensor else Tensor(other)
-        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params   
-        if other.data.shape != self.data.shape: # manual broadcasting to keep track of grads
-            otherCopy = Tensor(np.ndarray((self.data.shape)))
-            np.copyto(otherCopy.data, other.data)
-            other = otherCopy
-        
+        other = self.makeCompatible(other, op = '*')
         out = Tensor(data = (self.data * other.data), children = (self, other), op = '*')
         
         def backward():
@@ -50,8 +35,7 @@ class Tensor:
         return out
     
     def __pow__(self, other):
-        other = other if type(other) == Tensor else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
+        other = self.makeCompatible(other, op = '**')
         out = Tensor(data = (self.data ** other.data), children = (self, other), op = '**')
         
         def backward():
@@ -80,8 +64,7 @@ class Tensor:
         return (self ** -1) * other # don't actually implement division because it's not commutative and wouldn't be used here
     
     def __rpow__(self, other): # runs if other ** self didn't work
-        other = other if type(other) == Tensor else Tensor(other)
-        other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad)
+        other = self.makeCompatible(other, op = '**')
         out = Tensor(data = (other.data ** self.data), children = (other, self), op = '**')
         
         def backward():
@@ -103,12 +86,12 @@ class Tensor:
         return out
     
     def __matmul__(self, other): # almost identical to __mul__
-        other = other if type(other) == Tensor else Tensor(other)
+        other = self.makeCompatible(other, op = '@')
         out = Tensor(data = (self.data @ other.data), children = (self, other), op = '@')
         
         def backward():
-            self.grad += out.grad @ other.data.T
-            other.grad += self.data.T @ out.grad
+            self.grad += out.grad @ other.data.swapaxes(-2, -1)
+            other.grad += self.data.swapaxes(-2, -1) @ out.grad
         out.backward = backward
         return out
     
@@ -120,8 +103,7 @@ class Tensor:
         out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
         
         for f in range(fn):
-            otherPadded = Tensor(data = np.zeros_like(self.data)).sliceAdd(other.slice((f)).flip(), (slice(fc), slice(fx), slice(fy)))
-            out = out.sliceAdd((self.dftNd() * otherPadded.dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+            out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().padZerosToEnd(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
 
         return out
     
@@ -142,29 +124,29 @@ class Tensor:
                     out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
         return out
     
-    def pad(self, slice_index_tuple):
-        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+    def padZerosToEnd(self, other_shape): # calculate number of zeros needed for each dim --> insert zeros before every entry for no pre-self padding --> split padding arr for each dim
+        out = Tensor(data = np.pad(self.data, np.split(np.insert(np.array(other_shape) - np.array(self.data.shape), slice(0, len(other_shape), 1), 0), len(other_shape))), children = (self,), op = 'pad')
 
-        def backward():
-            self.grad[slice_index_tuple] += out.grad
+        def backward(): # TODO: get rid of for loop? ALSO ASSERT THE TWO INPUT SHAPES HAVE THE SAME LEN
+            self.grad += out.grad[tuple([slice(dimLen) for dimLen in self.data.shape])]
         out.backward = backward
         return out
     
-    def split(self, slice_index_tuple):
-        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+    # def split(self, indices_or_sections, axis):
+    #     out = Tensor(data = self.data, children = (self,), op = 'split')
 
-        def backward():
-            self.grad[slice_index_tuple] += out.grad
-        out.backward = backward
-        return out
+    #     def backward():
+    #         self.grad += out.grad
+    #     out.backward = backward
+    #     return out
     
-    def concatenate(self, slice_index_tuple):
-        out = Tensor(data = self.data[slice_index_tuple], children = (self,), op = 'S')
+    # def concatenate(self):
+    #     out = Tensor(data = self.data, children = (self,), op = 'concat')
 
-        def backward():
-            self.grad[slice_index_tuple] += out.grad
-        out.backward = backward
-        return out
+    #     def backward():
+    #         self.grad += out.grad
+    #     out.backward = backward
+    #     return out
 
     def transpose(self): # shifts axes (0->1, 1->2, etc)
         dims = np.arange(len(self.data.shape))
@@ -222,8 +204,8 @@ class Tensor:
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
-            dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
-            out = (out.reshape((-1, shape[0])) @ np.exp(-2j * np.pi * dftMatrix / shape[0])).reshape(shape).transpose()
+            dftMatrix = np.arange(shape[-1]).reshape((-1, 1)) @ np.arange(shape[-1]).reshape((1, -1))
+            out = (out @ np.exp(-2j * np.pi * dftMatrix / shape[-1])).transpose()
         return out
     
     def idftNd(self):
@@ -231,8 +213,8 @@ class Tensor:
         dims = np.arange(len(self.data.shape))
         for dim in dims:
             shape = out.data.shape
-            dftMatrix = np.arange(shape[0]).reshape((-1, 1)) @ np.arange(shape[0]).reshape((1, -1))
-            out = ((out.reshape((-1, shape[0])) @ np.exp(2j * np.pi * dftMatrix / shape[0])) / shape[0]).reshape(shape).transpose()
+            dftMatrix = np.arange(shape[-1]).reshape((-1, 1)) @ np.arange(shape[-1]).reshape((1, -1))
+            out = ((out @ np.exp(2j * np.pi * dftMatrix / shape[-1])) / shape[-1]).transpose()
         return out
 
     def exp(self):
@@ -249,6 +231,27 @@ class Tensor:
         def backward():
             self.grad += (self.data ** -1) * out.grad
         out.backward = backward
+        return out
+    
+    def makeCompatible(self, other, op): #TODO: CAN DELETE OP ARGUMENT??? also what if self needs brodcasting instead of other
+        out = other if isinstance(other, Tensor) else Tensor(other)
+        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
+        
+        if op == '@': #TODO: make sure this is okay
+            if len(out.data.shape) < len(self.data.shape):
+                newOutShape = np.array(self.data.shape)
+                newOutShape[-len(out.data.shape):] = out.data.shape
+                newOutData = np.ndarray(newOutShape, dtype = self.type)
+                np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
+                out.data = newOutData
+                out.grad = np.zeros_like(out.data)
+        else:
+            if out.data.shape != self.data.shape: # manual broadcasting to keep track of grads
+                newOutData = np.ndarray((self.data.shape), dtype = self.type) # alternative: np.ndarray(np.broadcast_shapes(self.data.shape, out.data.shape))
+                np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
+                out.data = newOutData
+                out.grad = np.zeros_like(out.data)
+
         return out
     
     def backprop(self):
