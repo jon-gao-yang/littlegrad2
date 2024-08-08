@@ -97,22 +97,20 @@ class Tensor:
     
     def conv(self, other, stride = 1): # TODO: enforce correct matrix dims?
         other = other if type(other) == Tensor else Tensor(other)
-        (nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
-        # ^ TODO: ADD M TO ALLOW VECTORIZATION (AND TRY TO USE SPLIT/CONCAT TO GET RID OF FOR LOOP)
+        (m, nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
         #out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
         #for f in range(fn):
-        #    out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().padZerosToEnd(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+        #    out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().pad(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
         #return out
-
-        return (self.dftNd((0, 1, 2)) * other.flip(axis = (1, 2, 3)).padZerosToEnd(self.data.shape).dftNd((1, 2, 3))).idftNd()
+        return (self.dftNd((1, 2, 3)) * other.flip(axis = (1, 2, 3)).pad(self.data.shape, ((0, 0), (0, 0), (0, nx-fx), (0, ny-fy))).dftNd((1, 2, 3))).idftNd((1, 2, 3)).slice((slice(None), slice(None), slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
     
     def avgPool(self, filter_size = 2, stride = 2):
-        (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.zeros(shape = (nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
+        (m, nc, nx, ny) = self.data.shape
+        out = Tensor(data = np.zeros(shape = (m, nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
         filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
         for c in range(nc):
-            out = out.sliceAdd(self.slice((slice(c, c+1))).conv(filter, stride = stride), (slice(c, c+1)))
+            out = out.sliceAdd(self.slice((slice(None), slice(c, c+1))).conv(filter, stride = stride), (slice(None), slice(c, c+1)))
         return out
 
     def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
@@ -124,12 +122,13 @@ class Tensor:
                     out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
         return out
     
-    def padZerosToEnd(self, other_shape): # calculate number of zeros needed for each dim --> insert zeros before every entry for no pre-self padding --> split padding arr for each dim
-        other_shape = np.concatenate((self.data.shape[:-len(other_shape)], other_shape)) if (len(other_shape) < len(self.data.shape)) else other_shape
-        out = Tensor(data = np.pad(self.data, np.split(np.insert(np.array(other_shape) - np.array(self.data.shape), slice(0, len(other_shape), 1), 0), len(other_shape))), children = (self,), op = 'pad')
+    def pad(self, other_shape, pad_width_tuple): # pad_width_tuple is a tuple of tuples for each axis, ex: ((before_1, after_1), ..., (before_N, after_N)) 
+        #other_shape = np.concatenate((self.data.shape[:-len(other_shape)], other_shape)) if (len(other_shape) < len(self.data.shape)) else other_shape
+        #pad_widths = np.split(np.insert(np.array(other_shape) - np.array(self.data.shape), slice(0, len(other_shape), 1), 0), len(other_shape))
+        out = Tensor(data = np.pad(self.data, pad_width_tuple), children = (self,), op = 'pad')
 
         def backward(): # TODO: get rid of for loop? ALSO ASSERT THE TWO INPUT SHAPES HAVE THE SAME LEN
-            self.grad += out.grad[tuple([slice(dimLen) for dimLen in self.data.shape])]
+            self.grad += out.grad[tuple([slice(pad_width_tuple[i][0], pad_width_tuple[i][0]+self.data.shape[i]) for i in np.arange(len(self.data.shape))])]
         out.backward = backward
         return out
     
@@ -200,20 +199,28 @@ class Tensor:
         out.backward = backward
         return out
     
-    def dftNd(self, axis = None):
+    def dftNd(self, axis = ()):
         out = self
-        axis = np.arange(len(self.data.shape)) if (axis == None) else axis
-        for dim in axis:
-            dftMatrix = np.arange(out.data.shape[-1]).reshape((-1, 1)) @ np.arange(out.data.shape[-1]).reshape((1, -1))
-            out = (out @ np.exp(-2j * np.pi * dftMatrix / out.data.shape[-1])).transpose()
+        axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
+
+        for dim in np.flip(np.arange(len(self.data.shape))):
+            if (dim in axis) and (self.data.shape[dim] > 1):
+                dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
+                out = (out @ np.exp(-2j * np.pi * dftMatrix / self.data.shape[dim])).transpose()
+            else:
+                out = out.transpose()
         return out
     
-    def idftNd(self, axis = None):
+    def idftNd(self, axis = ()):
         out = self
-        axis = np.arange(len(self.data.shape)) if (axis == None) else axis
-        for dim in axis:
-            dftMatrix = np.arange(out.data.shape[-1]).reshape((-1, 1)) @ np.arange(out.data.shape[-1]).reshape((1, -1))
-            out = ((out @ np.exp(2j * np.pi * dftMatrix / out.data.shape[-1])) / out.data.shape[-1]).transpose()
+        axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
+
+        for dim in np.flip(np.arange(len(self.data.shape))):
+            if (dim in axis) and (self.data.shape[dim] > 1):
+                dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
+                out = ((out @ np.exp(2j * np.pi * dftMatrix / self.data.shape[dim])) / self.data.shape[dim]).transpose()
+            else:
+                out = out.transpose()
         return out
 
     def exp(self):
@@ -240,24 +247,24 @@ class Tensor:
         out.backward = backward
         return out
     
-    def makeCompatible(self, other, same_size): # NOTE: makes 'other' compatible with 'self'
-        other = other if isinstance(other, Tensor) else Tensor(other)
-        #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
-        
+    def makeCompatible(self, other, same_size): # manual broadcasting of 'self' and 'other' to keep track of grads
+        other = other if isinstance(other, Tensor) else Tensor(other) # make sure 'other' is Tensor
+
+        # make sure self and other have same length
         if len(self.data.shape) > len(other.data.shape):
             other = other.reshape(np.insert(np.array(other.data.shape), 0, np.ones(len(self.data.shape) - len(other.data.shape))))
         elif len(self.data.shape) < len(other.data.shape):
             self = self.reshape(np.insert(np.array(self.data.shape), 0, np.ones(len(other.data.shape) - len(self.data.shape))))
-        #dimDiff = len(self.data.shape) - len(out.data.shape)
-        #out = out if (dimDiff <= 0) else out.reshape(np.insert(np.array(out.data.shape), 0, np.ones(dimDiff)))
 
+        # get broadcast repetition counts for each axis that needs broadcasting and make min broadcast count 1
         selfShape, otherShape = np.array(self.data.shape), np.array(other.data.shape)
-        otherBroadcastDims = (selfShape > 1) * (otherShape == 1) * selfShape # get broadcast counts for each axis
-        otherBroadcastDims += (otherBroadcastDims == 0) # make min broadcast count 1
-        selfBroadcastDims = (otherShape > 1) * (selfShape == 1) * otherShape # get broadcast counts for each axis
-        selfBroadcastDims += (selfBroadcastDims == 0) # make min broadcast count 1
+        otherBroadcastDims = (selfShape > 1) * (otherShape == 1) * selfShape # get broadcast counts
+        otherBroadcastDims += (otherBroadcastDims == 0)                      # make min broadcast count 1
+        selfBroadcastDims = (otherShape > 1) * (selfShape == 1) * otherShape # get broadcast counts
+        selfBroadcastDims += (selfBroadcastDims == 0)                        # make min broadcast count 1
 
-        if not same_size: # aka matmul
+        # if matmul instead of element-wise op, make inner dims compatible
+        if not same_size:
             selfBroadcastDims[-2:] = [1, 1]
             otherBroadcastDims[-2:] = [1, 1]
             if self.data.shape[-1] == 1:
@@ -265,25 +272,11 @@ class Tensor:
             elif other.data.shape[-2] == 1:
                 otherBroadcastDims[-2] = self.data.shape[-1] # make inner dims compatible
 
+        # if any axes need broadcasting, broadcast them w/ np.tile before returning Tensors
         if np.any(selfBroadcastDims > 1):
            self = self.tile(selfBroadcastDims)
         if np.any(otherBroadcastDims > 1):
             other = other.tile(otherBroadcastDims)
-
-        # if same_size:
-            # if out.data.shape != self.data.shape: # manual broadcasting to keep track of grads
-            #     newOutData = np.ndarray((self.data.shape), dtype = self.type) # alternative: np.ndarray(np.broadcast_shapes(self.data.shape, out.data.shape))
-            #     np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
-            #     out.data = newOutData
-            #     out.grad = np.zeros_like(out.data)
-
-        # else:
-            # if len(out.data.shape) < len(self.data.shape): #TODO: make sure this is okay
-            #     newOutData = np.ndarray(np.concatenate((self.data.shape[:-len(out.data.shape)], out.data.shape)), dtype = self.type)
-            #     np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
-            #     out.data = newOutData
-            #     out.grad = np.zeros_like(out.data)
-
         return (self, other)
     
     def backprop(self):

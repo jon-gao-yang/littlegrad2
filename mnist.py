@@ -33,7 +33,7 @@ class TestNet:
             param.grad.fill(0)
 
     def __call__(self, x:Tensor) -> Tensor:
-        l2 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu()
+        l2 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu()
         #l1 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu().avgPool()
         #l2 = l1.conv(self.params['f2']).relu().avgPool()
         l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
