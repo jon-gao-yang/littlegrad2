@@ -15,7 +15,7 @@ class Tensor:
         return f"Tensor object with data {self.data}"
     
     def __add__(self, other):
-        other = self.makeCompatible(other, op = '+')
+        (self, other) = Tensor.makeCompatible(self, other, same_size = True)
         out = Tensor(data = (self.data + other.data), children = (self, other), op = '+')
 
         def backward():
@@ -25,7 +25,7 @@ class Tensor:
         return out
     
     def __mul__(self, other):
-        other = self.makeCompatible(other, op = '*')
+        (self, other) = Tensor.makeCompatible(self, other, same_size = True)
         out = Tensor(data = (self.data * other.data), children = (self, other), op = '*')
         
         def backward():
@@ -35,7 +35,7 @@ class Tensor:
         return out
     
     def __pow__(self, other):
-        other = self.makeCompatible(other, op = '**')
+        (self, other) = Tensor.makeCompatible(self, other, same_size = True)
         out = Tensor(data = (self.data ** other.data), children = (self, other), op = '**')
         
         def backward():
@@ -64,7 +64,7 @@ class Tensor:
         return (self ** -1) * other # don't actually implement division because it's not commutative and wouldn't be used here
     
     def __rpow__(self, other): # runs if other ** self didn't work
-        other = self.makeCompatible(other, op = '**')
+        (self, other) = Tensor.makeCompatible(self, other, same_size = True)
         out = Tensor(data = (other.data ** self.data), children = (other, self), op = '**')
         
         def backward():
@@ -86,7 +86,7 @@ class Tensor:
         return out
     
     def __matmul__(self, other): # almost identical to __mul__
-        other = self.makeCompatible(other, op = '@')
+        (self, other) = Tensor.makeCompatible(self, other, same_size = False)
         out = Tensor(data = (self.data @ other.data), children = (self, other), op = '@')
         
         def backward():
@@ -100,12 +100,12 @@ class Tensor:
         (nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
         # ^ TODO: ADD M TO ALLOW VECTORIZATION (AND TRY TO USE SPLIT/CONCAT TO GET RID OF FOR LOOP)
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
-        out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
-        
-        for f in range(fn):
-            out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().padZerosToEnd(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+        #out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
+        #for f in range(fn):
+        #    out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().padZerosToEnd(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
+        #return out
 
-        return out
+        return (self.dftNd((0, 1, 2)) * other.flip(axis = (1, 2, 3)).padZerosToEnd(self.data.shape).dftNd((1, 2, 3))).idftNd()
     
     def avgPool(self, filter_size = 2, stride = 2):
         (nc, nx, ny) = self.data.shape
@@ -125,6 +125,7 @@ class Tensor:
         return out
     
     def padZerosToEnd(self, other_shape): # calculate number of zeros needed for each dim --> insert zeros before every entry for no pre-self padding --> split padding arr for each dim
+        other_shape = np.concatenate((self.data.shape[:-len(other_shape)], other_shape)) if (len(other_shape) < len(self.data.shape)) else other_shape
         out = Tensor(data = np.pad(self.data, np.split(np.insert(np.array(other_shape) - np.array(self.data.shape), slice(0, len(other_shape), 1), 0), len(other_shape))), children = (self,), op = 'pad')
 
         def backward(): # TODO: get rid of for loop? ALSO ASSERT THE TWO INPUT SHAPES HAVE THE SAME LEN
@@ -187,7 +188,7 @@ class Tensor:
         out.backward = backward
         return out
     
-    def max(self):
+    def max(self): # TODO: DELETE THIS FUNCITON AND OTHER UNUSED STUFF
         index = np.argmax(self.data)
         return self.flatten().slice((slice(2), slice(index, index + 1)))
     
@@ -199,22 +200,20 @@ class Tensor:
         out.backward = backward
         return out
     
-    def dftNd(self):
+    def dftNd(self, axis = None):
         out = self
-        dims = np.arange(len(self.data.shape))
-        for dim in dims:
-            shape = out.data.shape
-            dftMatrix = np.arange(shape[-1]).reshape((-1, 1)) @ np.arange(shape[-1]).reshape((1, -1))
-            out = (out @ np.exp(-2j * np.pi * dftMatrix / shape[-1])).transpose()
+        axis = np.arange(len(self.data.shape)) if (axis == None) else axis
+        for dim in axis:
+            dftMatrix = np.arange(out.data.shape[-1]).reshape((-1, 1)) @ np.arange(out.data.shape[-1]).reshape((1, -1))
+            out = (out @ np.exp(-2j * np.pi * dftMatrix / out.data.shape[-1])).transpose()
         return out
     
-    def idftNd(self):
+    def idftNd(self, axis = None):
         out = self
-        dims = np.arange(len(self.data.shape))
-        for dim in dims:
-            shape = out.data.shape
-            dftMatrix = np.arange(shape[-1]).reshape((-1, 1)) @ np.arange(shape[-1]).reshape((1, -1))
-            out = ((out @ np.exp(2j * np.pi * dftMatrix / shape[-1])) / shape[-1]).transpose()
+        axis = np.arange(len(self.data.shape)) if (axis == None) else axis
+        for dim in axis:
+            dftMatrix = np.arange(out.data.shape[-1]).reshape((-1, 1)) @ np.arange(out.data.shape[-1]).reshape((1, -1))
+            out = ((out @ np.exp(2j * np.pi * dftMatrix / out.data.shape[-1])) / out.data.shape[-1]).transpose()
         return out
 
     def exp(self):
@@ -233,26 +232,59 @@ class Tensor:
         out.backward = backward
         return out
     
-    def makeCompatible(self, other, op): #TODO: CAN DELETE OP ARGUMENT??? also what if self needs brodcasting instead of other
-        out = other if isinstance(other, Tensor) else Tensor(other)
+    def tile(self, reps):
+        out = Tensor(data = np.tile(self.data, reps), children = (self,), op = 'tile')
+
+        def backward():
+            self.grad += np.average(out.grad, axis = tuple(np.arange(len(reps))[(reps > 1)]), keepdims = True) if np.any((reps > 1)) else out.grad # boolean array indexing
+        out.backward = backward
+        return out
+    
+    def makeCompatible(self, other, same_size): # NOTE: makes 'other' compatible with 'self'
+        other = other if isinstance(other, Tensor) else Tensor(other)
         #other.grad = other.grad if other.grad.shape == self.grad.shape else np.zeros_like(self.grad) #works for broadcasting literals but not params
         
-        if op == '@': #TODO: make sure this is okay
-            if len(out.data.shape) < len(self.data.shape):
-                newOutShape = np.array(self.data.shape)
-                newOutShape[-len(out.data.shape):] = out.data.shape
-                newOutData = np.ndarray(newOutShape, dtype = self.type)
-                np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
-                out.data = newOutData
-                out.grad = np.zeros_like(out.data)
-        else:
-            if out.data.shape != self.data.shape: # manual broadcasting to keep track of grads
-                newOutData = np.ndarray((self.data.shape), dtype = self.type) # alternative: np.ndarray(np.broadcast_shapes(self.data.shape, out.data.shape))
-                np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
-                out.data = newOutData
-                out.grad = np.zeros_like(out.data)
+        if len(self.data.shape) > len(other.data.shape):
+            other = other.reshape(np.insert(np.array(other.data.shape), 0, np.ones(len(self.data.shape) - len(other.data.shape))))
+        elif len(self.data.shape) < len(other.data.shape):
+            self = self.reshape(np.insert(np.array(self.data.shape), 0, np.ones(len(other.data.shape) - len(self.data.shape))))
+        #dimDiff = len(self.data.shape) - len(out.data.shape)
+        #out = out if (dimDiff <= 0) else out.reshape(np.insert(np.array(out.data.shape), 0, np.ones(dimDiff)))
 
-        return out
+        selfShape, otherShape = np.array(self.data.shape), np.array(other.data.shape)
+        otherBroadcastDims = (selfShape > 1) * (otherShape == 1) * selfShape # get broadcast counts for each axis
+        otherBroadcastDims += (otherBroadcastDims == 0) # make min broadcast count 1
+        selfBroadcastDims = (otherShape > 1) * (selfShape == 1) * otherShape # get broadcast counts for each axis
+        selfBroadcastDims += (selfBroadcastDims == 0) # make min broadcast count 1
+
+        if not same_size: # aka matmul
+            selfBroadcastDims[-2:] = [1, 1]
+            otherBroadcastDims[-2:] = [1, 1]
+            if self.data.shape[-1] == 1:
+                selfBroadcastDims[-1] = other.data.shape[-2] # make inner dims compatible
+            elif other.data.shape[-2] == 1:
+                otherBroadcastDims[-2] = self.data.shape[-1] # make inner dims compatible
+
+        if np.any(selfBroadcastDims > 1):
+           self = self.tile(selfBroadcastDims)
+        if np.any(otherBroadcastDims > 1):
+            other = other.tile(otherBroadcastDims)
+
+        # if same_size:
+            # if out.data.shape != self.data.shape: # manual broadcasting to keep track of grads
+            #     newOutData = np.ndarray((self.data.shape), dtype = self.type) # alternative: np.ndarray(np.broadcast_shapes(self.data.shape, out.data.shape))
+            #     np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
+            #     out.data = newOutData
+            #     out.grad = np.zeros_like(out.data)
+
+        # else:
+            # if len(out.data.shape) < len(self.data.shape): #TODO: make sure this is okay
+            #     newOutData = np.ndarray(np.concatenate((self.data.shape[:-len(out.data.shape)], out.data.shape)), dtype = self.type)
+            #     np.copyto(dst = newOutData, src = out.data) # "Copies values from one array to another, broadcasting as necessary." -numpy docs
+            #     out.data = newOutData
+            #     out.grad = np.zeros_like(out.data)
+
+        return (self, other)
     
     def backprop(self):
         nodeList = []
