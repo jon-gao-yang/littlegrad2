@@ -15,8 +15,8 @@ class TestNet:
             'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
 
             #'w1' : Tensor(np.random.randn(24*24*6, 64) * np.sqrt(2 / (24*24*6))),
-            'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
-            #'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
+            #'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
+            'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
             'b1' : Tensor(np.zeros((1, 64))),
             'w2' : Tensor(np.random.randn(64, 10) * np.sqrt(2 / (64))),
             'b2' : Tensor(np.zeros((1, 10))),
@@ -33,10 +33,10 @@ class TestNet:
             param.grad.fill(0)
 
     def __call__(self, x:Tensor) -> Tensor:
-        l2 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu()
-        #l1 = x.reshape((-1, 28, 28)).conv(self.params['f1']).relu().avgPool()
-        #l2 = l1.conv(self.params['f2']).relu().avgPool()
-        l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
+        #l2 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu().avgPool()
+        l1 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu().avgPool()
+        l2 = l1.conv(self.params['f2']).relu().avgPool()
+        l3 = ((l2.reshape((-1, 4*4*16)) @ self.params['w1']) + self.params['b1']).relu()
         return((l3 @ self.params['w2']) + self.params['b2'])
 
 class ConvNet:
@@ -179,14 +179,11 @@ def loss(X, y, model, batch_size=None, regularization=True, alpha=1e-8):
 
 ###### [ 3/4 : MAIN FUNCTION ] ######
 
-def kaggle_training(epochs = 10, batch_size = None, regularization = True, learning_rate = 0.0001, alpha = 1e-8):
+def kaggle_training(model, epochs = 10, batch_size = None, regularization = True, learning_rate = 0.0001, alpha = 1e-8):
     [y, X] = np.split(np.loadtxt('digit-recognizer/train.csv', dtype = int, delimiter = ',', skiprows = 1), [1], axis = 1)
     # ^ NOTE: loading data from file, then splitting into labels (first col) and pixel vals
     y = np.squeeze(y) # 2D -> 1D
     X = (X-np.average(X)) / np.std(X)  # data normalization
-    
-    model = LinearNet()
-    #model = TestNet()
     beta1, beta2, epsilon, weight_decay = 0.9, 0.999, 1e-10, 0.01
     print('TRAINING BEGINS (with', model.param_num(), 'parameters)')
     startTime = time.time()
@@ -220,12 +217,15 @@ def kaggle_training(epochs = 10, batch_size = None, regularization = True, learn
     # write_kaggle_submission(model)
     # print('TEST SET INFERENCE COMPLETE')
 
-###### [ 4/4 : MAIN FUNCTION EXECUTION ] ###### (NOTE: cost will not converge if learning rate is too high)
+###### [ 4/4 : MAIN FUNCTION EXECUTION ] ###### 
+# NOTE: cost will not converge if learning rate is too high
+# NOTE: REMEMBER TO CHANGE SELF.TYPE IN ENGINE.PY IF SWITCHING FROM CONV NET TO LINEAR NET
 
-# for current TestNet():
-kaggle_training(epochs = 50, batch_size = 1, regularization = False, learning_rate = 0.00001, alpha = 0)
+# for current TestNet() (NOTE: set self.type = complex):
+kaggle_training(model = TestNet(), epochs = 50, batch_size = 10, regularization = False, learning_rate = 0.00001, alpha = 0)
 
-#kaggle_training(epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
+#kaggle_training(model = TestNet(), epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 
-# for LinearNet():
-#kaggle_training(epochs = 210, batch_size = 1000, regularization = False, learning_rate = 0.00468, alpha = 0)
+# for LinearNet() (NOTE: set self.type = float):
+#kaggle_training(model = LinearNet(), epochs = 210, batch_size = 1000, regularization = False, learning_rate = 0.00468, alpha = 0)
+#kaggle_training(model = LinearNet(), epochs = 200, batch_size = 1000, regularization = False, learning_rate = 0.199, alpha = 0)

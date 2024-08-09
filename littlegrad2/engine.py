@@ -99,12 +99,13 @@ class Tensor:
         other = other if type(other) == Tensor else Tensor(other)
         (m, nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
-        #out = Tensor(data = np.zeros(shape = (fn, ((nx-fx)//stride)+1, ((ny-fy)//stride)+1)), op = 'conv') # NOTE: doesn't need children/backwards because it's basically a literal
-        #for f in range(fn):
-        #    out = out.sliceAdd((self.dftNd() * other.slice((f)).flip().pad(self.data.shape).dftNd()).idftNd().slice((slice(0, 1, stride), slice(fx-1, nx, stride), slice(fy-1, ny, stride))), (slice(f, f+1), slice(out.data.shape[-2]), slice(out.data.shape[-1])))
-        #return out
-        return (self.dftNd((1, 2, 3)) * other.flip(axis = (1, 2, 3)).pad(self.data.shape, ((0, 0), (0, 0), (0, nx-fx), (0, ny-fy))).dftNd((1, 2, 3))).idftNd((1, 2, 3)).slice((slice(None), slice(None), slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
-    
+
+        self =   self.reshape((m, 1, nc, nx, ny))
+        other = other.reshape((1, fn, fc, fx, fy))
+        axes, pad_width_tuple = (2, 3, 4), ((0, 0), (0, 0), (0, 0), (0, nx-fx), (0, ny-fy))
+
+        return (self.dftNd(axes) * other.flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
+
     def avgPool(self, filter_size = 2, stride = 2):
         (m, nc, nx, ny) = self.data.shape
         out = Tensor(data = np.zeros(shape = (m, nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
