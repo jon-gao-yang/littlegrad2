@@ -100,11 +100,12 @@ class Tensor:
         (m, nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
 
-        self =   self.reshape((m, 1, nc, nx, ny))
-        other = other.reshape((1, fn, fc, fx, fy))
         axes, pad_width_tuple = (2, 3, 4), ((0, 0), (0, 0), (0, 0), (0, nx-fx), (0, ny-fy))
+        self =   self.reshape((m, 1, nc, nx, ny)).dftNd(axes)
+        other = other.reshape((1, fn, fc, fx, fy)).flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)
 
-        return (self.dftNd(axes) * other.flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
+        #return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
+        return (self * other).idftNd(axes)
 
     def avgPool(self, filter_size = 2, stride = 2):
         (m, nc, nx, ny) = self.data.shape
