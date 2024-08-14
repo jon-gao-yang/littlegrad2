@@ -104,24 +104,34 @@ class Tensor:
         self =   self.reshape((m, 1, nc, nx, ny)).dftNd(axes)
         other = other.reshape((1, fn, fc, fx, fy)).flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)
 
-        #return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
-        return (self * other).idftNd(axes)
+        return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
+        #return (self * other).idftNd(axes)
 
-    def avgPool(self, filter_size = 2, stride = 2):
+    # def avgPool(self, filter_size = 2, stride = 2):
+    #     (m, nc, nx, ny) = self.data.shape
+    #     out = Tensor(data = np.zeros(shape = (m, nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
+    #     filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
+    #     for c in range(nc):
+    #         out = out.sliceAdd(self.slice((slice(None), slice(c, c+1))).conv(filter, stride = stride), (slice(None), slice(c, c+1)))
+    #     return out
+
+    # def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
+    #     (nc, nx, ny) = self.data.shape
+    #     out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), op = 'maxPool') # NOTE: doesn't need children/backwards because it's basically a literal
+    #     for c in range(out.data.shape[0]):
+    #         for x in range(out.data.shape[1]):
+    #             for y in range(out.data.shape[2]):
+    #                 out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
+    #     return out
+
+    def maxPool2d(self, filter_size = 2, stride = 2): # TODO: BACKWARD()
         (m, nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.zeros(shape = (m, nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
-        filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
-        for c in range(nc):
-            out = out.sliceAdd(self.slice((slice(None), slice(c, c+1))).conv(filter, stride = stride), (slice(None), slice(c, c+1)))
-        return out
-
-    def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
-        (nc, nx, ny) = self.data.shape
-        out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), op = 'maxPool') # NOTE: doesn't need children/backwards because it's basically a literal
-        for c in range(out.data.shape[0]):
-            for x in range(out.data.shape[1]):
-                for y in range(out.data.shape[2]):
-                    out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
+        out = Tensor(np.ndarray((m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride)))))
+        for x in range(out.data.shape[-2]):
+            for y in range(out.data.shape[-1]):
+                xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, out.data.shape[-2])
+                ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, out.data.shape[-1])
+                out.data[..., x, y] = np.max(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1)
         return out
     
     def pad(self, other_shape, pad_width_tuple): # pad_width_tuple is a tuple of tuples for each axis, ex: ((before_1, after_1), ..., (before_N, after_N)) 
@@ -188,10 +198,6 @@ class Tensor:
             other.grad += out.grad[slice_index_tuple]
         out.backward = backward
         return out
-    
-    def max(self): # TODO: DELETE THIS FUNCITON AND OTHER UNUSED STUFF
-        index = np.argmax(self.data)
-        return self.flatten().slice((slice(2), slice(index, index + 1)))
     
     def flip(self, axis = None):
         out = Tensor(data = np.flip(self.data, axis = axis), children = (self,), op = 'flip')
