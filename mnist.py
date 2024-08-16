@@ -11,23 +11,20 @@ class TestNet:
     def __init__(self):
         
         self.params = { # 2 / (# of inputs from last layer) for He initialization
-            #'f1' : Tensor(np.random.randn(1, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
             'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
             'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
 
-            #'w1' : Tensor(np.random.randn(28*28*1, 160) * np.sqrt(2 / (28*28*1))),
-            'w1' : Tensor(np.random.randn(24*24*6, 160) * np.sqrt(2 / (24*24*6))),
-            #'w1' : Tensor(np.random.randn(12*12*6, 64) * np.sqrt(2 / (12*12*6))),
-            #'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
-            'b1' : Tensor(np.zeros((1, 160))),
-            'w2' : Tensor(np.random.randn(160, 80) * np.sqrt(2 / (160))),
-            'b2' : Tensor(np.zeros((1, 80))),
-
-            'w4' : Tensor(np.random.randn(80, 40) * np.sqrt(2 / 80)), # 2 / (# of inputs from last layer)
-            'b4' : Tensor(np.zeros((1, 40))),
-            'w5' : Tensor(np.random.randn(40, 10) * np.sqrt(2 / 40)), # 2 / (# of inputs from last layer)
-            'b5' : Tensor(np.zeros((1, 10)))
+            'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
+            'b1' : Tensor(np.zeros((1, 64))),
+            'w2' : Tensor(np.random.randn(64, 10) * np.sqrt(2 / (64))),
+            'b2' : Tensor(np.zeros((1, 10))),
         }
+
+    def __call__(self, x:Tensor) -> Tensor:
+        l1 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu().maxPool2d()
+        l2 = l1.conv(self.params['f2']).relu().maxPool2d()
+        l3 = ((l2.reshape((-1, self.params['w1'].data.shape[0])) @ self.params['w1']) + self.params['b1']).relu()
+        return ((l3 @ self.params['w2']) + self.params['b2'])
 
     def parameters(self):
         return self.params.values()
@@ -38,19 +35,6 @@ class TestNet:
     def zero_grad(self):
         for param in self.params.values():
             param.grad.fill(0)
-
-    def __call__(self, x:Tensor) -> Tensor:
-        l2 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu()
-        #l2 = x
-        #l1 = x.reshape((-1, 1, 28, 28)).conv(self.params['f1']).relu().avgPool()
-        #l2 = l1.conv(self.params['f2']).relu().avgPool()
-        l3 = ((l2.reshape((-1, self.params['w1'].data.shape[0])) @ self.params['w1']) + self.params['b1']).relu()
-        #return ((l3 @ self.params['w2']) + self.params['b2'])
-    
-        #l3 = ((l2 @ self.params['w3']) + self.params['b3']).relu()
-        l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
-        l5 = ((l4 @ self.params['w4']) + self.params['b4']).relu()
-        return (l5 @ self.params['w5']) + self.params['b5']
 
 class ConvNet:
     def __init__(self):
@@ -228,7 +212,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
 
     endTime = time.time()
     print('TRAINING COMPLETE (in', endTime - startTime, 'sec)')
-    # plot_kaggle_data(X, y, model, predict = True)
+    plot_kaggle_data(X, y, model, predict = True)
     # print('BEGINNING TEST SET INFERENCE')
     # write_kaggle_submission(model)
     # print('TEST SET INFERENCE COMPLETE')
@@ -238,7 +222,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
 # NOTE: REMEMBER TO CHANGE SELF.TYPE IN ENGINE.PY IF SWITCHING FROM CONV NET TO LINEAR NET
 
 # for current TestNet() (NOTE: set self.type = complex):
-kaggle_training(model = TestNet(), epochs = 50, batch_size = 10, regularization = False, learning_rate = 0.1, alpha = 0)
+kaggle_training(model = TestNet(), epochs = 50, batch_size = 10, regularization = False, learning_rate = 0.05, alpha = 0)
 
 #kaggle_training(model = TestNet(), epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 

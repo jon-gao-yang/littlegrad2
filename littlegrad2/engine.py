@@ -107,32 +107,21 @@ class Tensor:
         return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
         #return (self * other).idftNd(axes)
 
-    # def avgPool(self, filter_size = 2, stride = 2):
-    #     (m, nc, nx, ny) = self.data.shape
-    #     out = Tensor(data = np.zeros(shape = (m, nc, nx//stride, ny//stride)), op = 'avgPool') # NOTE: doesn't need children/backwards because it's basically a literal
-    #     filter = np.ones(shape = (1, 1, filter_size, filter_size))/(filter_size**2)
-    #     for c in range(nc):
-    #         out = out.sliceAdd(self.slice((slice(None), slice(c, c+1))).conv(filter, stride = stride), (slice(None), slice(c, c+1)))
-    #     return out
-
-    # def maxPool2d(self, filter_size = 2, stride = 2): # NOTE: FORWARD PASS NO WORK
-    #     (nc, nx, ny) = self.data.shape
-    #     out = Tensor(data = np.ndarray(shape = (nc, nx//stride, ny//stride)), op = 'maxPool') # NOTE: doesn't need children/backwards because it's basically a literal
-    #     for c in range(out.data.shape[0]):
-    #         for x in range(out.data.shape[1]):
-    #             for y in range(out.data.shape[2]):
-    #                 out.sliceAdd(self.slice((slice(c, c+1), slice(x*stride, x*stride+filter_size), slice(y*stride, y*stride+filter_size))).max(), (slice(c, c+1), slice(x, x+1), slice(y, y+1)))
-    #     return out
-
-    def maxPool2d(self, filter_size = 2, stride = 2): # TODO: BACKWARD()
+    def maxPool2d(self, filter_size = 2, stride = 2):
         (m, nc, nx, ny) = self.data.shape
-        out = Tensor(np.ndarray((m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride)))))
-        for x in range(out.data.shape[-2]):
-            for y in range(out.data.shape[-1]):
-                xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, out.data.shape[-2])
-                ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, out.data.shape[-1])
-                out.data[..., x, y] = np.max(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1)
-        return out
+        maxIndices = np.ndarray((4, m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride))), dtype = int)
+        #out = Tensor(np.zeros((m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride)))))
+        for x in range(maxIndices.shape[-2]):
+            for y in range(maxIndices.shape[-1]):
+                xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, maxIndices.shape[-2])
+                ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, maxIndices.shape[-1])
+                #out.data[..., x, y] = np.max(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1)
+                maxIndices[-2, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -1), axis = -1) + (x*filter_size)
+                maxIndices[-1, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1) + (y*filter_size)
+        np.copyto(dst = maxIndices[0], src = np.arange(m).reshape((m, 1, 1, 1)))
+        np.copyto(dst = maxIndices[1], src = np.arange(nc).reshape((1, nc, 1, 1)))
+        return self.slice((maxIndices[0], maxIndices[1], maxIndices[2], maxIndices[3]))
+        #return out
     
     def pad(self, other_shape, pad_width_tuple): # pad_width_tuple is a tuple of tuples for each axis, ex: ((before_1, after_1), ..., (before_N, after_N)) 
         #other_shape = np.concatenate((self.data.shape[:-len(other_shape)], other_shape)) if (len(other_shape) < len(self.data.shape)) else other_shape
@@ -143,22 +132,6 @@ class Tensor:
             self.grad += out.grad[tuple([slice(pad_width_tuple[i][0], pad_width_tuple[i][0]+self.data.shape[i]) for i in np.arange(len(self.data.shape))])]
         out.backward = backward
         return out
-    
-    # def split(self, indices_or_sections, axis):
-    #     out = Tensor(data = self.data, children = (self,), op = 'split')
-
-    #     def backward():
-    #         self.grad += out.grad
-    #     out.backward = backward
-    #     return out
-    
-    # def concatenate(self):
-    #     out = Tensor(data = self.data, children = (self,), op = 'concat')
-
-    #     def backward():
-    #         self.grad += out.grad
-    #     out.backward = backward
-    #     return out
 
     def transpose(self): # shifts axes (0->1, 1->2, etc)
         dims = np.arange(len(self.data.shape))
