@@ -40,24 +40,22 @@ class ConvNet:
     def __init__(self):
         
         self.params = { # 2 / (# of inputs from last layer) for He initialization
-            # 'f1' : Tensor(np.random.randn(5, 5, 1, 6) * np.sqrt(2 / (28*28*1))),
-            # 'f2' : Tensor(np.random.randn(5, 5, 6, 16) * np.sqrt(2 / (12*12*6))),
-
-            # 'f1d' : Tensor(np.random.randn(5, 5, 1) * np.sqrt(2 / (28*28*1))),
-            # 'f1p' : Tensor(np.random.randn(1, 1, 1, 6) * np.sqrt(2 / (24*24*1))),
-            # 'f2d' : Tensor(np.random.randn(5, 5, 6) * np.sqrt(2 / (12*12*6))),
-            # 'f2p' : Tensor(np.random.randn(1, 1, 6, 16) * np.sqrt(2 / (8*8*6))),
-
-            'f1' : Tensor(np.random.randn(6, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
-            'f2' : Tensor(np.random.randn(16, 6, 5, 5) * np.sqrt(2 / (12*12*6))),
+            'f1' : Tensor(np.random.randn(8, 1, 5, 5) * np.sqrt(2 / (28*28*1))),
+            'f1b' : Tensor(np.zeros((1, 8, 1, 1))),
+            'f2' : Tensor(np.random.randn(16, 8, 5, 5) * np.sqrt(2 / (12*12*8))),
+            'f2b' : Tensor(np.zeros((1, 16, 1, 1))),
 
             'w1' : Tensor(np.random.randn(4*4*16, 64) * np.sqrt(2 / (4*4*16))),
             'b1' : Tensor(np.zeros((1, 64))),
-            'w2' : Tensor(np.random.randn(64, 16) * np.sqrt(2 / (64))),
-            'b2' : Tensor(np.zeros((1, 16))),
-            'w3' : Tensor(np.random.randn(16, 10) * np.sqrt(2 / (16))),
-            'b3' : Tensor(np.zeros((1, 10))),
+            'w2' : Tensor(np.random.randn(64, 10) * np.sqrt(2 / (64))),
+            'b2' : Tensor(np.zeros((1, 10))),
         }
+
+    def __call__(self, x:Tensor) -> Tensor:
+        l1 = (x.reshape((-1, 1, 28, 28)).conv(self.params['f1']) + self.params['f1b']).relu().maxPool2d()
+        l2 = (l1.conv(self.params['f2']) + self.params['f2b']).relu().maxPool2d()
+        l3 = ((l2.reshape((-1, self.params['w1'].data.shape[0])) @ self.params['w1']) + self.params['b1']).relu()
+        return ((l3 @ self.params['w2']) + self.params['b2'])
 
     def parameters(self):
         return self.params.values()
@@ -68,16 +66,6 @@ class ConvNet:
 
     def param_num(self):
         return np.sum([t.data.size for t in self.params.values()])
-
-    def __call__(self, x:Tensor) -> Tensor:
-        l1 = x.reshape((1, 28, 28)).conv(self.params['f1']).relu().maxPool2d()
-        l2 = l1.conv(self.params['f2']).relu().maxPool2d()
-        
-        #l1 = x.dconv(self.params['f1d']).conv(self.params['f1p']).relu().maxPool2d() #depthwise separable convolution
-        #l2 = l1.dconv(self.params['f2d']).conv(self.params['f2p']).relu().maxPool2d() #depthwise separable convolution
-        l3 = ((l2.flatten() @ self.params['w1']) + self.params['b1']).relu()
-        l4 = ((l3 @ self.params['w2']) + self.params['b2']).relu()
-        return (l4 @ self.params['w3']) + self.params['b3']
     
 class LinearNet:
     def __init__(self):
@@ -132,7 +120,7 @@ def plot_kaggle_data(X, y, model, predict=False):
         yhat = None
         # Predict using the Neural Network
         if predict:
-            probs, log_softmax = softmax(model(Tensor(X[random_index])))
+            probs, log_softmax = softmax(model(Tensor(X_random_reshaped)))
             yhat = np.argmax(probs.data)
         
         # Display the label above the image
@@ -143,7 +131,7 @@ def plot_kaggle_data(X, y, model, predict=False):
 
 def write_kaggle_submission(model):
     X = np.loadtxt('digit-recognizer/test.csv', dtype = int, delimiter = ',', skiprows = 1) # data loading
-    X = (X-np.average(X)) / np.std(X)  # data normalization
+    X = X/255  # data normalization
 
     probs, log_softmax = softmax(model(Tensor(X))) # inference
     out = np.concatenate((np.arange(1, X.shape[0]+1).reshape((-1, 1)), np.argmax(probs.data, axis = 1).reshape((-1, 1))), axis = 1)
@@ -180,7 +168,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
     [y, X] = np.split(np.loadtxt('digit-recognizer/train.csv', dtype = int, delimiter = ',', skiprows = 1), [1], axis = 1)
     # ^ NOTE: loading data from file, then splitting into labels (first col) and pixel vals
     y = np.squeeze(y) # 2D -> 1D
-    X = (X-np.average(X)) / np.std(X)  # data normalization
+    X = X/255  # data normalization
     beta1, beta2, epsilon, weight_decay = 0.9, 0.999, 1e-10, 0.01
     print('TRAINING BEGINS (with', model.param_num(), 'parameters)')
     startTime = time.time()
@@ -192,7 +180,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
         #total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization, alpha = alpha)
 
         # TODO: REMOVE THIS 
-        total_loss, acc = loss(X[:10], y[:10], model, batch_size = batch_size, regularization = regularization, alpha = alpha)
+        total_loss, acc = loss(X[:100], y[:100], model, batch_size = batch_size, regularization = regularization, alpha = alpha)
 
         # backward
         model.zero_grad()
@@ -200,7 +188,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
         
         # update parameters w/ AdamW Algorithm
         for p in model.parameters(): 
-            p.data -= learning_rate * p.grad
+            p.data -= learning_rate * p.grad # TODO: ALLOW OPTIMIZER CHOICE
             # p.data -= p.data * learning_rate * weight_decay
             # p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
             # p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
@@ -222,7 +210,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
 # NOTE: REMEMBER TO CHANGE SELF.TYPE IN ENGINE.PY IF SWITCHING FROM CONV NET TO LINEAR NET
 
 # for current TestNet() (NOTE: set self.type = complex):
-kaggle_training(model = TestNet(), epochs = 50, batch_size = 10, regularization = False, learning_rate = 0.05, alpha = 0)
+kaggle_training(model = TestNet(), epochs = 50, batch_size = 100, regularization = False, learning_rate = 0.3, alpha = 0)
 
 #kaggle_training(model = TestNet(), epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
 

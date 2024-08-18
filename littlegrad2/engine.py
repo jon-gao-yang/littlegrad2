@@ -95,17 +95,27 @@ class Tensor:
         out.backward = backward
         return out
     
-    def conv(self, other, stride = 1): # TODO: enforce correct matrix dims?
+    def conv(self, other, stride = 1): # TODO: enforce correct matrix dims? DELETE UNNECESSARY TENSOR METHODS
         other = other if type(other) == Tensor else Tensor(other)
         (m, nc, nx, ny) = self.data.shape # NOTE: CHANNELS FIRST
         (fn, fc, fx, fy) = other.data.shape # NOTE: FILTERS & CHANNELS FIRST
 
         axes, pad_width_tuple = (2, 3, 4), ((0, 0), (0, 0), (0, 0), (0, nx-fx), (0, ny-fy))
-        self =   self.reshape((m, 1, nc, nx, ny)).dftNd(axes)
-        other = other.reshape((1, fn, fc, fx, fy)).flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)
+        selfData =  np.fft.fftn(self.data.reshape((m, 1, nc, nx, ny)), axes = axes)
+        otherData = np.fft.fftn(np.pad(np.flip(other.data.reshape((1, fn, fc, fx, fy)), axes), pad_width_tuple), axes = axes)
+        out = Tensor(data = np.fft.ifftn(selfData * otherData, axes = axes)[:, :, -1, fx-1:nx:stride, fy-1:ny:stride].real, children = (self, other), op = 'conv')
 
-        return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
-        #return (self * other).idftNd(axes)
+        def backward():
+            for x in range(out.grad.shape[-2]):
+                for y in range(out.grad.shape[-1]):
+                    other.grad += np.average(self.data[..., x*stride:x*stride+fx, y*stride:y*stride+fy], axis = 0, keepdims = True) * np.average(out.grad[..., x, y], axis = 0).reshape((-1, 1, 1, 1))
+        out.backward = backward
+        return out
+
+        # axes, pad_width_tuple = (2, 3, 4), ((0, 0), (0, 0), (0, 0), (0, nx-fx), (0, ny-fy))
+        # self =   self.reshape((m, 1, nc, nx, ny)).dftNd(axes)
+        # other = other.reshape((1, fn, fc, fx, fy)).flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)
+        # return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
 
     def maxPool2d(self, filter_size = 2, stride = 2):
         (m, nc, nx, ny) = self.data.shape
@@ -113,8 +123,8 @@ class Tensor:
         #out = Tensor(np.zeros((m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride)))))
         for x in range(maxIndices.shape[-2]):
             for y in range(maxIndices.shape[-1]):
-                xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, maxIndices.shape[-2])
-                ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, maxIndices.shape[-1])
+                xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, nx)
+                ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, ny)
                 #out.data[..., x, y] = np.max(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1)
                 maxIndices[-2, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -1), axis = -1) + (x*filter_size)
                 maxIndices[-1, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1) + (y*filter_size)
