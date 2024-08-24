@@ -52,8 +52,8 @@ class ConvNet:
         }
 
     def __call__(self, x:Tensor) -> Tensor:
-        l1 = (x.reshape((-1, 1, 28, 28)).conv(self.params['f1']) + self.params['f1b']).relu().maxPool2d()
-        l2 = (l1.conv(self.params['f2']) + self.params['f2b']).relu().maxPool2d()
+        l1 = (x.reshape((-1, 1, 28, 28)).conv(self.params['f1']) + self.params['f1b']).maxPool2d().relu()
+        l2 = (l1.conv(self.params['f2']) + self.params['f2b']).maxPool2d().relu()
         l3 = ((l2.reshape((-1, self.params['w1'].data.shape[0])) @ self.params['w1']) + self.params['b1']).relu()
         return ((l3 @ self.params['w2']) + self.params['b2'])
 
@@ -111,16 +111,13 @@ def plot_kaggle_data(X, y, model, predict=False):
         # Select random indices
         random_index = np.random.randint(X.shape[0])
         
-        # Select rows corresponding to the random indices and reshape the image
-        X_random_reshaped = X[random_index].reshape((28,28))
-        
         # Display the image
-        ax.imshow(X_random_reshaped, cmap='gray')
+        ax.imshow(X[random_index].reshape(28, 28), cmap='gray')
 
         yhat = None
         # Predict using the Neural Network
         if predict:
-            probs, log_softmax = softmax(model(Tensor(X_random_reshaped)))
+            probs, log_softmax = softmax(model(Tensor(X[random_index])))
             yhat = np.argmax(probs.data)
         
         # Display the label above the image
@@ -177,10 +174,7 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
     for k in range(epochs):
         
         # forward
-        #total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization, alpha = alpha)
-
-        # TODO: REMOVE THIS 
-        total_loss, acc = loss(X[:100], y[:100], model, batch_size = batch_size, regularization = regularization, alpha = alpha)
+        total_loss, acc = loss(X, y, model, batch_size = batch_size, regularization = regularization, alpha = alpha)
 
         # backward
         model.zero_grad()
@@ -188,34 +182,29 @@ def kaggle_training(model, epochs = 10, batch_size = None, regularization = True
         
         # update parameters w/ AdamW Algorithm
         for p in model.parameters(): 
-            p.data -= learning_rate * p.grad # TODO: ALLOW OPTIMIZER CHOICE
-            # p.data -= p.data * learning_rate * weight_decay
-            # p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
-            # p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
-            # v_dp_corrected = p.v / (1 - (beta1**(k+1)))
-            # s_dp_corrected = p.s / (1 - (beta2**(k+1)))
-            # p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon) #doesn't work for broadasted bias v/s/grad tensors
+            #p.data -= learning_rate * p.grad # TODO: ALLOW OPTIMIZER CHOICE
+            p.data -= p.data * learning_rate * weight_decay
+            p.v = (beta1 * p.v) + ((1-beta1) * p.grad)
+            p.s = (beta2 * p.s) + ((1-beta2) * p.grad * p.grad)
+            v_dp_corrected = p.v / (1 - (beta1**(k+1)))
+            s_dp_corrected = p.s / (1 - (beta2**(k+1)))
+            p.data -= learning_rate * v_dp_corrected / (np.sqrt(s_dp_corrected) + epsilon) #doesn't work for broadasted bias v/s/grad tensors
 
         print(f"step {k} loss {total_loss.data.real[0, 0]}, accuracy {acc*100}%")
 
     endTime = time.time()
     print('TRAINING COMPLETE (in', endTime - startTime, 'sec)')
     plot_kaggle_data(X, y, model, predict = True)
-    # print('BEGINNING TEST SET INFERENCE')
-    # write_kaggle_submission(model)
-    # print('TEST SET INFERENCE COMPLETE')
+    print('BEGINNING TEST SET INFERENCE')
+    write_kaggle_submission(model)
+    print('TEST SET INFERENCE COMPLETE')
 
 ###### [ 4/4 : MAIN FUNCTION EXECUTION ] ###### 
 # NOTE: cost will not converge if learning rate is too high
 # NOTE: REMEMBER TO CHANGE SELF.TYPE IN ENGINE.PY IF SWITCHING FROM CONV NET TO LINEAR NET
 
-# for current TestNet() (NOTE: set self.type = complex):
-kaggle_training(model = TestNet(), epochs = 50, batch_size = 100, regularization = False, learning_rate = 0.3, alpha = 0)
-
-#kaggle_training(model = TestNet(), epochs = 100, batch_size = 100, regularization = True, learning_rate = 0.0006, alpha = 1e-6)
+# for ConvNet() (NOTE: set self.type = complex):
+#kaggle_training(model = ConvNet(), epochs = 500, batch_size = 200, regularization = False, learning_rate = 0.0005, alpha = 0)
 
 # for LinearNet() (NOTE: set self.type = float):
-#kaggle_training(model = LinearNet(), epochs = 210, batch_size = 1000, regularization = False, learning_rate = 0.00468, alpha = 0)
-#kaggle_training(model = LinearNet(), epochs = 200, batch_size = 1000, regularization = False, learning_rate = 0.199, alpha = 0)
-
-#kaggle_training(model = LinearNet(), epochs = 50, batch_size = 1, regularization = False, learning_rate = 0.0001, alpha = 0)
+kaggle_training(model = LinearNet(), epochs = 300, batch_size = 500, regularization = False, learning_rate = 0.0007898, alpha = 0)

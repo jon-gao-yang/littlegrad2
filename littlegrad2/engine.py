@@ -5,8 +5,8 @@ class Tensor:
         self.children = children
         self.backward = lambda: None
         self._op = op
-        self.type = np.complex128 # for ConvNet()
-        #self.type = float  # for LinearNet() (MUCH faster than complex128)
+        #self.type = np.complex128 # for ConvNet()
+        self.type = float  # for LinearNet() (MUCH faster than complex128)
         self.data = np.atleast_2d(data.astype(self.type)) if isinstance(data, np.ndarray) else np.atleast_2d(np.array(object = data, dtype = self.type))
         # ^ NOTE: np.atleast_2d() reshapes 1d arrays to (1, -1)
         self.grad, self.v, self.s = np.zeros_like(self.data), np.zeros_like(self.data), np.zeros_like(self.data)
@@ -111,46 +111,38 @@ class Tensor:
                     other.grad += np.average(self.data[..., x*stride:x*stride+fx, y*stride:y*stride+fy], axis = 0, keepdims = True) * np.average(out.grad[..., x, y], axis = 0).reshape((-1, 1, 1, 1))
         out.backward = backward
         return out
-
-        # axes, pad_width_tuple = (2, 3, 4), ((0, 0), (0, 0), (0, 0), (0, nx-fx), (0, ny-fy))
-        # self =   self.reshape((m, 1, nc, nx, ny)).dftNd(axes)
-        # other = other.reshape((1, fn, fc, fx, fy)).flip(axes).pad(self.data.shape, pad_width_tuple).dftNd(axes)
-        # return (self * other).idftNd(axes).slice((slice(None), slice(None), -1, slice(fx-1, nx, stride), slice(fy-1, ny, stride)))
-
+    
     def maxPool2d(self, filter_size = 2, stride = 2):
         (m, nc, nx, ny) = self.data.shape
         maxIndices = np.ndarray((4, m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride))), dtype = int)
-        #out = Tensor(np.zeros((m, nc, int(np.ceil(nx/stride)), int(np.ceil(ny/stride)))))
+        
         for x in range(maxIndices.shape[-2]):
             for y in range(maxIndices.shape[-1]):
                 xSlice = slice(stride*x, stride*x+filter_size) if stride*x+filter_size <= nx else slice(stride*x, nx)
                 ySlice = slice(stride*y, stride*y+filter_size) if stride*y+filter_size <= ny else slice(stride*y, ny)
-                #out.data[..., x, y] = np.max(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1)
+                
                 maxIndices[-2, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -1), axis = -1) + (x*filter_size)
                 maxIndices[-1, ..., x, y] = np.argmax(np.max(self.data[..., xSlice, ySlice], axis = -2), axis = -1) + (y*filter_size)
         np.copyto(dst = maxIndices[0], src = np.arange(m).reshape((m, 1, 1, 1)))
         np.copyto(dst = maxIndices[1], src = np.arange(nc).reshape((1, nc, 1, 1)))
         return self.slice((maxIndices[0], maxIndices[1], maxIndices[2], maxIndices[3]))
-        #return out
     
-    def pad(self, other_shape, pad_width_tuple): # pad_width_tuple is a tuple of tuples for each axis, ex: ((before_1, after_1), ..., (before_N, after_N)) 
-        #other_shape = np.concatenate((self.data.shape[:-len(other_shape)], other_shape)) if (len(other_shape) < len(self.data.shape)) else other_shape
-        #pad_widths = np.split(np.insert(np.array(other_shape) - np.array(self.data.shape), slice(0, len(other_shape), 1), 0), len(other_shape))
-        out = Tensor(data = np.pad(self.data, pad_width_tuple), children = (self,), op = 'pad')
+    # def pad(self, other_shape, pad_width_tuple): # pad_width_tuple is a tuple of tuples for each axis, ex: ((before_1, after_1), ..., (before_N, after_N)) 
+    #     out = Tensor(data = np.pad(self.data, pad_width_tuple), children = (self,), op = 'pad')
 
-        def backward(): # TODO: get rid of for loop? ALSO ASSERT THE TWO INPUT SHAPES HAVE THE SAME LEN
-            self.grad += out.grad[tuple([slice(pad_width_tuple[i][0], pad_width_tuple[i][0]+self.data.shape[i]) for i in np.arange(len(self.data.shape))])]
-        out.backward = backward
-        return out
+    #     def backward(): # TODO: get rid of for loop? ALSO ASSERT THE TWO INPUT SHAPES HAVE THE SAME LEN
+    #         self.grad += out.grad[tuple([slice(pad_width_tuple[i][0], pad_width_tuple[i][0]+self.data.shape[i]) for i in np.arange(len(self.data.shape))])]
+    #     out.backward = backward
+    #     return out
 
-    def transpose(self): # shifts axes (0->1, 1->2, etc)
-        dims = np.arange(len(self.data.shape))
-        out = Tensor(data = np.transpose(self.data, axes = np.roll(dims, 1)), children = (self,), op = 'T')
+    # def transpose(self): # shifts axes (0->1, 1->2, etc)
+    #     dims = np.arange(len(self.data.shape))
+    #     out = Tensor(data = np.transpose(self.data, axes = np.roll(dims, 1)), children = (self,), op = 'T')
 
-        def backward():
-            self.grad += np.transpose(out.grad, axes = np.roll(dims, -1))
-        out.backward = backward
-        return out
+    #     def backward():
+    #         self.grad += np.transpose(out.grad, axes = np.roll(dims, -1))
+    #     out.backward = backward
+    #     return out
     
     def reshape(self, shape, order = 'C'):
         out = Tensor(data = self.data.reshape(shape, order = order), children = (self,), op = 'R')
@@ -171,48 +163,48 @@ class Tensor:
         out.backward = backward
         return out
 
-    def sliceAdd(self, other, slice_index_tuple): # TODO: check tensor dims? also is this correct?
-        other = other if type(other) == Tensor else Tensor(other)
-        out = Tensor(data = self.data, children = (self, other), op = 'S+')
-        out.data[slice_index_tuple] += other.data
+    # def sliceAdd(self, other, slice_index_tuple): # TODO: check tensor dims? also make sure this doesn't mess up backprop
+    #     other = other if type(other) == Tensor else Tensor(other)
+    #     out = Tensor(data = self.data, children = (self, other), op = 'S+')
+    #     out.data[slice_index_tuple] += other.data
 
-        def backward():
-            self.grad += out.grad
-            other.grad += out.grad[slice_index_tuple]
-        out.backward = backward
-        return out
+    #     def backward():
+    #         self.grad += out.grad
+    #         other.grad += out.grad[slice_index_tuple]
+    #     out.backward = backward
+    #     return out
     
-    def flip(self, axis = None):
-        out = Tensor(data = np.flip(self.data, axis = axis), children = (self,), op = 'flip')
+    # def flip(self, axis = None):
+    #     out = Tensor(data = np.flip(self.data, axis = axis), children = (self,), op = 'flip')
 
-        def backward():
-            self.grad += np.flip(out.grad, axis = axis)
-        out.backward = backward
-        return out
+    #     def backward():
+    #         self.grad += np.flip(out.grad, axis = axis)
+    #     out.backward = backward
+    #     return out
     
-    def dftNd(self, axis = ()):
-        out = self
-        axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
+    # def dftNd(self, axis = ()):
+    #     out = self
+    #     axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
 
-        for dim in np.flip(np.arange(len(self.data.shape))):
-            if (dim in axis) and (self.data.shape[dim] > 1):
-                dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
-                out = (out @ np.exp(-2j * np.pi * dftMatrix / self.data.shape[dim])).transpose()
-            else:
-                out = out.transpose()
-        return out
+    #     for dim in np.flip(np.arange(len(self.data.shape))):
+    #         if (dim in axis) and (self.data.shape[dim] > 1):
+    #             dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
+    #             out = (out @ np.exp(-2j * np.pi * dftMatrix / self.data.shape[dim])).transpose()
+    #         else:
+    #             out = out.transpose()
+    #     return out
     
-    def idftNd(self, axis = ()):
-        out = self
-        axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
+    # def idftNd(self, axis = ()):
+    #     out = self
+    #     axis = axis if (len(axis) > 0) else np.arange(len(self.data.shape))
 
-        for dim in np.flip(np.arange(len(self.data.shape))):
-            if (dim in axis) and (self.data.shape[dim] > 1):
-                dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
-                out = ((out @ np.exp(2j * np.pi * dftMatrix / self.data.shape[dim])) / self.data.shape[dim]).transpose()
-            else:
-                out = out.transpose()
-        return out
+    #     for dim in np.flip(np.arange(len(self.data.shape))):
+    #         if (dim in axis) and (self.data.shape[dim] > 1):
+    #             dftMatrix = np.arange(self.data.shape[dim]).reshape((-1, 1)) @ np.arange(self.data.shape[dim]).reshape((1, -1))
+    #             out = ((out @ np.exp(2j * np.pi * dftMatrix / self.data.shape[dim])) / self.data.shape[dim]).transpose()
+    #         else:
+    #             out = out.transpose()
+    #     return out
 
     def exp(self):
         out = Tensor(data = np.exp(self.data), children = (self,), op = 'exp')
